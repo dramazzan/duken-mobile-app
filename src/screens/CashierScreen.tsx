@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,21 +11,33 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Barcode, Minus, Plus, ScanLine, Search, ShoppingCart, Trash2 } from 'lucide-react-native';
+import {
+  Banknote,
+  Barcode,
+  Clock3,
+  CreditCard,
+  HandCoins,
+  Minus,
+  Plus,
+  ScanLine,
+  Search,
+  ShoppingCart,
+  Trash2,
+  X,
+} from 'lucide-react-native';
 
 import { ActionButton } from '../components/ActionButton';
 import { BarcodeScannerModal } from '../components/BarcodeScannerModal';
 import { formatMoney } from '../lib/format';
 import { colors, shadow } from '../lib/theme';
 import {
-  decreaseProductsQuantity,
   getAllProducts,
   getProductByBarcode,
-  getProductById,
   mapProductRow,
   subscribeToProducts,
 } from '../services/products.service';
-import type { CartLine, Product } from '../lib/types';
+import { createSale, getCustomerSuggestions, PAYMENT_METHOD_LABELS } from '../services/sales.service';
+import type { CartLine, DebtorSummary, PaymentMethod, Product } from '../lib/types';
 
 type CashierScreenProps = {
   cart: CartLine[];
@@ -32,6 +45,17 @@ type CashierScreenProps = {
   onAddUnknownBarcode: (barcode: string) => void;
   onInventoryChanged: () => void;
 };
+
+const paymentOptions: Array<{
+  method: PaymentMethod;
+  description: string;
+  Icon: typeof Banknote;
+}> = [
+  { method: 'cash', description: 'Продажа сразу оплачена', Icon: Banknote },
+  { method: 'transfer', description: 'Перевод на карту или счет', Icon: CreditCard },
+  { method: 'debt', description: 'Сохранить в долгах клиента', Icon: HandCoins },
+  { method: 'home_payment', description: 'Клиент оплатит из дома', Icon: Clock3 },
+];
 
 function isSameProduct(left: Product, right: Product) {
   return (
@@ -77,11 +101,23 @@ export function CashierScreen({
   const [manualLoading, setManualLoading] = useState(false);
   const [manualError, setManualError] = useState<string | null>(null);
   const [completing, setCompleting] = useState(false);
+  const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerSuggestions, setCustomerSuggestions] = useState<DebtorSummary[]>([]);
+  const [customerLoading, setCustomerLoading] = useState(false);
+  const [selectedCustomerKey, setSelectedCustomerKey] = useState<string | null>(null);
+  const [paymentComment, setPaymentComment] = useState('');
 
   const total = useMemo(
     () => cart.reduce((sum, line) => sum + line.product.price * line.quantity, 0),
     [cart]
   );
+
+  const requiresCustomerInfo =
+    selectedPaymentMethod === 'debt' || selectedPaymentMethod === 'home_payment';
 
   useEffect(() => {
     return subscribeToProducts((payload) => {
@@ -142,6 +178,43 @@ export function CashierScreen({
       clearTimeout(timeout);
     };
   }, [manualSearch]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!paymentModalVisible || !requiresCustomerInfo) {
+      setCustomerSuggestions([]);
+      setCustomerLoading(false);
+      return;
+    }
+
+    setCustomerLoading(true);
+
+    const timeout = setTimeout(async () => {
+      try {
+        const rows = await getCustomerSuggestions(customerSearch);
+
+        if (!cancelled) {
+          setCustomerSuggestions(rows);
+        }
+      } catch (error) {
+        console.warn('Could not load customer suggestions', error);
+
+        if (!cancelled) {
+          setCustomerSuggestions([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setCustomerLoading(false);
+        }
+      }
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [customerSearch, paymentModalVisible, requiresCustomerInfo]);
 
   const addProductToCart = (product: Product) => {
     setCart((current) => {
@@ -223,71 +296,104 @@ export function CashierScreen({
     ]);
   };
 
+  const resetPaymentForm = () => {
+    setSelectedPaymentMethod(null);
+    setCustomerName('');
+    setCustomerPhone('');
+    setCustomerSearch('');
+    setCustomerSuggestions([]);
+    setCustomerLoading(false);
+    setSelectedCustomerKey(null);
+    setPaymentComment('');
+  };
+
+  const selectPaymentMethod = (method: PaymentMethod) => {
+    setSelectedPaymentMethod(method);
+
+    if (method === 'cash' || method === 'transfer') {
+      setCustomerName('');
+      setCustomerPhone('');
+      setCustomerSearch('');
+      setCustomerSuggestions([]);
+      setSelectedCustomerKey(null);
+      setPaymentComment('');
+    }
+  };
+
+  const selectCustomer = (customer: DebtorSummary) => {
+    setSelectedCustomerKey(customer.key);
+    setCustomerName(customer.name === 'Клиент не указан' ? '' : customer.name);
+    setCustomerPhone(customer.phone ?? '');
+    setCustomerSearch(customer.name);
+  };
+
+  const startNewCustomer = () => {
+    const nameFromSearch = customerSearch.trim();
+    setSelectedCustomerKey(null);
+    setCustomerName(nameFromSearch);
+    setCustomerPhone('');
+  };
+
+  const openPaymentChoice = () => {
+    if (!cart.length) {
+      Alert.alert('Корзина пустая', 'Сначала добавьте товары сканированием.');
+      return;
+    }
+
+    resetPaymentForm();
+    setPaymentModalVisible(true);
+  };
+
+  const closePaymentChoice = () => {
+    if (completing) {
+      return;
+    }
+
+    setPaymentModalVisible(false);
+  };
+
   const finishSale = async () => {
     if (!cart.length) {
       Alert.alert('Корзина пустая', 'Сначала добавьте товары сканированием.');
       return;
     }
 
+    if (!selectedPaymentMethod) {
+      Alert.alert('Выберите способ оплаты', 'Без способа оплаты продажу завершить нельзя.');
+      return;
+    }
+
+    if (requiresCustomerInfo && !customerName.trim()) {
+      Alert.alert('Укажите клиента', 'Для долга и оплаты из дома нужно имя клиента.');
+      return;
+    }
+
     try {
       setCompleting(true);
-      await decreaseProductsQuantity(
-        cart.map((line) => ({
-          productId: line.product.id,
-          amount: line.quantity,
-        }))
+      const sale = await createSale(
+        cart,
+        selectedPaymentMethod,
+        requiresCustomerInfo
+          ? {
+              name: customerName,
+              phone: customerPhone,
+              comment: paymentComment,
+            }
+          : {}
       );
-      Alert.alert('Продажа завершена', `Итого: ${formatMoney(total)}`);
+      Alert.alert(
+        'Продажа сохранена',
+        `${sale.saleNumber}\n${PAYMENT_METHOD_LABELS[sale.paymentMethod]}\nИтого: ${formatMoney(sale.totalAmount)}`
+      );
       setCart([]);
+      resetPaymentForm();
+      setPaymentModalVisible(false);
       onInventoryChanged();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось завершить продажу.';
       Alert.alert('Ошибка продажи', message);
     } finally {
       setCompleting(false);
-    }
-  };
-
-  const confirmSale = async () => {
-    if (!cart.length) {
-      Alert.alert('Корзина пустая', 'Сначала добавьте товары сканированием.');
-      return;
-    }
-
-    try {
-      const latestProducts = await Promise.all(
-        cart.map((line) => getProductById(line.product.id))
-      );
-      const shortages = cart
-        .map((line, index) => ({
-          line,
-          stock: latestProducts[index]?.quantity ?? 0,
-        }))
-        .filter(({ line, stock }) => line.quantity > stock);
-
-      if (!shortages.length) {
-        await finishSale();
-        return;
-      }
-
-      const shortageText = shortages
-        .map(
-          ({ line, stock }, index) =>
-            `${index + 1}. ${line.product.name}: в корзине ${line.quantity}, остаток ${stock}`
-        )
-        .join('\n');
-
-      Alert.alert(
-        'Не хватает остатков',
-        `${shortageText}\n\nПродажа уведет остаток в минус.`,
-        [
-          { text: 'Отмена', style: 'cancel' },
-          { text: 'Все равно продать', style: 'destructive', onPress: finishSale },
-        ]
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Не удалось проверить остатки.';
-      Alert.alert('Ошибка продажи', message);
     }
   };
 
@@ -441,7 +547,7 @@ export function CashierScreen({
           disabled={!cart.length}
           label="Завершить продажу"
           loading={completing}
-          onPress={confirmSale}
+          onPress={openPaymentChoice}
         />
       </View>
 
@@ -451,6 +557,156 @@ export function CashierScreen({
         title="Сканировать товар"
         visible={scannerVisible}
       />
+
+      <Modal
+        animationType="slide"
+        onRequestClose={closePaymentChoice}
+        presentationStyle="pageSheet"
+        visible={paymentModalVisible}
+      >
+        <View style={styles.paymentScreen}>
+          <View style={styles.paymentHeader}>
+            <View style={styles.paymentTitleWrap}>
+              <Text style={styles.paymentTitle}>Способ оплаты</Text>
+              <Text style={styles.paymentSubtitle}>Итого: {formatMoney(total)}</Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              disabled={completing}
+              onPress={closePaymentChoice}
+              style={styles.paymentClose}
+            >
+              <X color={colors.text} size={24} />
+            </Pressable>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.paymentContent} keyboardShouldPersistTaps="handled">
+            <View style={styles.paymentOptions}>
+              {paymentOptions.map(({ method, description, Icon }) => {
+                const active = selectedPaymentMethod === method;
+                return (
+                  <Pressable
+                    accessibilityRole="button"
+                    key={method}
+                    onPress={() => selectPaymentMethod(method)}
+                    style={({ pressed }) => [
+                      styles.paymentOption,
+                      active ? styles.paymentOptionActive : null,
+                      pressed ? styles.paymentOptionPressed : null,
+                    ]}
+                  >
+                    <View style={[styles.paymentIcon, active ? styles.paymentIconActive : null]}>
+                      <Icon color={active ? colors.primary : colors.muted} size={25} />
+                    </View>
+                    <View style={styles.paymentOptionText}>
+                      <Text style={styles.paymentOptionTitle}>
+                        {PAYMENT_METHOD_LABELS[method]}
+                      </Text>
+                      <Text style={styles.paymentOptionDescription}>{description}</Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {requiresCustomerInfo ? (
+              <View style={styles.customerPanel}>
+                <Text style={styles.customerPanelTitle}>
+                  {selectedPaymentMethod === 'debt' ? 'Должник' : 'Клиент'}
+                </Text>
+                <View style={styles.customerSearchWrap}>
+                  <Search color={colors.muted} size={20} />
+                  <TextInput
+                    autoCapitalize="words"
+                    onChangeText={setCustomerSearch}
+                    placeholder={selectedPaymentMethod === 'debt' ? 'Найти должника' : 'Найти клиента'}
+                    placeholderTextColor={colors.muted}
+                    style={styles.customerSearchInput}
+                    value={customerSearch}
+                  />
+                  {customerLoading ? <ActivityIndicator color={colors.primary} /> : null}
+                </View>
+
+                {customerSuggestions.length ? (
+                  <View style={styles.customerSuggestions}>
+                    {customerSuggestions.map((customer) => {
+                      const active = selectedCustomerKey === customer.key;
+                      return (
+                        <Pressable
+                          accessibilityRole="button"
+                          key={customer.key}
+                          onPress={() => selectCustomer(customer)}
+                          style={({ pressed }) => [
+                            styles.customerSuggestion,
+                            active ? styles.customerSuggestionActive : null,
+                            pressed ? styles.customerSuggestionPressed : null,
+                          ]}
+                        >
+                          <View style={styles.customerSuggestionInfo}>
+                            <Text numberOfLines={1} style={styles.customerSuggestionName}>
+                              {customer.name}
+                            </Text>
+                            <Text numberOfLines={1} style={styles.customerSuggestionMeta}>
+                              {customer.phone ?? 'Без телефона'} · долг {formatMoney(customer.totalAmount)}
+                            </Text>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ) : null}
+
+                <ActionButton
+                  label={selectedPaymentMethod === 'debt' ? 'Новый должник' : 'Новый клиент'}
+                  onPress={startNewCustomer}
+                  variant="secondary"
+                />
+
+                <TextInput
+                  autoCapitalize="words"
+                  onChangeText={(value) => {
+                    setSelectedCustomerKey(null);
+                    setCustomerName(value);
+                  }}
+                  placeholder="Имя клиента"
+                  placeholderTextColor={colors.muted}
+                  style={styles.customerInput}
+                  value={customerName}
+                />
+                <TextInput
+                  keyboardType="phone-pad"
+                  onChangeText={(value) => {
+                    setSelectedCustomerKey(null);
+                    setCustomerPhone(value);
+                  }}
+                  placeholder="Телефон, необязательно"
+                  placeholderTextColor={colors.muted}
+                  style={styles.customerInput}
+                  value={customerPhone}
+                />
+                <TextInput
+                  multiline
+                  onChangeText={setPaymentComment}
+                  placeholder="Комментарий, необязательно"
+                  placeholderTextColor={colors.muted}
+                  style={[styles.customerInput, styles.commentInput]}
+                  textAlignVertical="top"
+                  value={paymentComment}
+                />
+              </View>
+            ) : null}
+          </ScrollView>
+
+          <View style={styles.paymentFooter}>
+            <ActionButton
+              disabled={!selectedPaymentMethod || (requiresCustomerInfo && !customerName.trim())}
+              label="Сохранить продажу"
+              loading={completing}
+              onPress={finishSale}
+            />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -725,6 +981,185 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   footer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    padding: 16,
+    paddingBottom: 22,
+    backgroundColor: '#FFFFFF',
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+  },
+  paymentScreen: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  paymentHeader: {
+    minHeight: 104,
+    paddingHorizontal: 16,
+    paddingTop: 50,
+    paddingBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: 12,
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+  },
+  paymentTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  paymentTitle: {
+    color: colors.text,
+    fontSize: 24,
+    fontWeight: '900',
+  },
+  paymentSubtitle: {
+    color: colors.muted,
+    fontSize: 15,
+    fontWeight: '800',
+    marginTop: 4,
+  },
+  paymentClose: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  paymentContent: {
+    padding: 16,
+    paddingBottom: 112,
+    gap: 16,
+  },
+  paymentOptions: {
+    gap: 10,
+  },
+  paymentOption: {
+    minHeight: 78,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+  },
+  paymentOptionActive: {
+    borderColor: colors.primary,
+    backgroundColor: '#EAF7EF',
+  },
+  paymentOptionPressed: {
+    opacity: 0.75,
+  },
+  paymentIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  paymentIconActive: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#C9EAD5',
+  },
+  paymentOptionText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  paymentOptionTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  paymentOptionDescription: {
+    color: colors.muted,
+    fontSize: 13,
+    marginTop: 3,
+  },
+  customerPanel: {
+    gap: 10,
+  },
+  customerPanelTitle: {
+    color: colors.text,
+    fontSize: 19,
+    fontWeight: '900',
+  },
+  customerSearchWrap: {
+    minHeight: 54,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+  },
+  customerSearchInput: {
+    flex: 1,
+    minHeight: 54,
+    color: colors.text,
+    fontSize: 16,
+  },
+  customerSuggestions: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+  },
+  customerSuggestion: {
+    minHeight: 58,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+  },
+  customerSuggestionActive: {
+    backgroundColor: '#EAF7EF',
+  },
+  customerSuggestionPressed: {
+    opacity: 0.72,
+  },
+  customerSuggestionInfo: {
+    minWidth: 0,
+  },
+  customerSuggestionName: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  customerSuggestionMeta: {
+    color: colors.muted,
+    fontSize: 13,
+    marginTop: 3,
+  },
+  customerInput: {
+    minHeight: 54,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    color: colors.text,
+    fontSize: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  commentInput: {
+    minHeight: 94,
+  },
+  paymentFooter: {
     position: 'absolute',
     left: 0,
     right: 0,

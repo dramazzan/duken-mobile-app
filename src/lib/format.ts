@@ -4,6 +4,13 @@ export function formatMoney(value: number) {
   }).format(Math.round(value))} ₸`;
 }
 
+export function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat('ru-KZ', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(new Date(value));
+}
+
 export function parsePositiveNumber(value: string) {
   const normalized = value.replace(',', '.').trim();
   const parsed = Number(normalized);

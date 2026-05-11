@@ -7,7 +7,7 @@ import {
   View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { PackageSearch, PlusCircle, ShoppingCart } from 'lucide-react-native';
+import { HandCoins, History, PackageSearch, PlusCircle, ShoppingCart } from 'lucide-react-native';
 import {
   SafeAreaProvider,
   SafeAreaView,
@@ -19,7 +19,9 @@ import { colors } from './src/lib/theme';
 import type { CartLine, TabKey } from './src/lib/types';
 import { AddProductScreen } from './src/screens/AddProductScreen';
 import { CashierScreen } from './src/screens/CashierScreen';
+import { DebtsScreen } from './src/screens/DebtsScreen';
 import { ProductsScreen } from './src/screens/ProductsScreen';
+import { SalesHistoryScreen } from './src/screens/SalesHistoryScreen';
 import { loadPersistedCart, savePersistedCart } from './src/services/cart-storage.service';
 import { getProductById } from './src/services/products.service';
 
@@ -29,8 +31,10 @@ const tabs: Array<{
   Icon: typeof ShoppingCart;
 }> = [
   { key: 'cashier', label: 'Касса', Icon: ShoppingCart },
-  { key: 'add', label: 'Добавить', Icon: PlusCircle },
   { key: 'products', label: 'Товары', Icon: PackageSearch },
+  { key: 'add', label: 'Добавить', Icon: PlusCircle },
+  { key: 'history', label: 'История', Icon: History },
+  { key: 'debts', label: 'Долги', Icon: HandCoins },
 ];
 
 async function refreshCartProducts(cart: CartLine[]) {
@@ -129,6 +133,14 @@ function AppContent() {
           refreshToken={inventoryVersion}
         />
       );
+    }
+
+    if (activeTab === 'history') {
+      return <SalesHistoryScreen />;
+    }
+
+    if (activeTab === 'debts') {
+      return <DebtsScreen />;
     }
 
     return (

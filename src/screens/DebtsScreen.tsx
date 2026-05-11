@@ -16,13 +16,15 @@ import { CheckCircle2, Clock3, HandCoins, Plus, Search, X } from 'lucide-react-n
 import { ActionButton } from '../components/ActionButton';
 import { formatDateTime, formatMoney, parsePositiveNumber } from '../lib/format';
 import { colors, shadow } from '../lib/theme';
-import type { Sale } from '../lib/types';
+import type { DebtorSummary, Sale } from '../lib/types';
 import {
   confirmSalePayment,
   createManualDebt,
   filterSalesBySmartQuery,
+  getCustomerSuggestions,
   getDebts,
   getHomePayments,
+  groupSalesByCustomer,
   moveHomePaymentToDebt,
   recordDebtPayment,
   returnSaleToUnpaid,
@@ -105,24 +107,58 @@ function DebtSaleCard({
   );
 }
 
+function DebtorRow({
+  debtor,
+  onPress,
+}: {
+  debtor: DebtorSummary;
+  onPress: () => void;
+}) {
+  const paid = debtor.totalAmount <= 0;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.debtorRow,
+        paid ? styles.debtorRowPaid : null,
+        pressed ? styles.cardPressed : null,
+      ]}
+    >
+      <Text numberOfLines={1} style={styles.debtorName}>
+        {debtor.name}
+      </Text>
+      <Text numberOfLines={1} style={[styles.debtorAmount, paid ? styles.debtorAmountPaid : null]}>
+        {formatMoney(debtor.totalAmount)}
+      </Text>
+    </Pressable>
+  );
+}
+
 export function DebtsScreen() {
   const [activeSection, setActiveSection] = useState<DebtSection>('debts');
   const [debtSales, setDebtSales] = useState<Sale[]>([]);
   const [homePayments, setHomePayments] = useState<Sale[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedDebtorKey, setSelectedDebtorKey] = useState<string | null>(null);
   const [selectedDebtSaleId, setSelectedDebtSaleId] = useState<string | null>(null);
   const [selectedHomeSaleId, setSelectedHomeSaleId] = useState<string | null>(null);
   const [manualModalVisible, setManualModalVisible] = useState(false);
+  const [manualCustomerSearch, setManualCustomerSearch] = useState('');
   const [manualName, setManualName] = useState('');
   const [manualPhone, setManualPhone] = useState('');
   const [manualAmount, setManualAmount] = useState('');
   const [manualComment, setManualComment] = useState('');
+  const [customerSuggestions, setCustomerSuggestions] = useState<DebtorSummary[]>([]);
+  const [selectedCustomerKey, setSelectedCustomerKey] = useState<string | null>(null);
   const [partialTarget, setPartialTarget] = useState<Sale | null>(null);
   const [partialAmount, setPartialAmount] = useState('');
   const [hiddenSaleIds, setHiddenSaleIds] = useState<Set<string>>(new Set());
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [revertingId, setRevertingId] = useState<string | null>(null);
   const [movingId, setMovingId] = useState<string | null>(null);
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [savingPartial, setSavingPartial] = useState(false);
   const [savingManual, setSavingManual] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -142,13 +178,10 @@ export function DebtsScreen() {
       setErrorText(null);
 
       if (activeSection === 'debts') {
-        const rows = filterSalesBySmartQuery(await getDebts(), searchTerm);
+        const rows = await getDebts();
         setDebtSales((current) => {
-          const paidLocalRows = filterSalesBySmartQuery(
-            current.filter(
-              (sale) => sale.status === 'paid' && !rows.some((row) => row.id === sale.id)
-            ),
-            searchTerm
+          const paidLocalRows = current.filter(
+            (sale) => sale.status === 'paid' && !rows.some((row) => row.id === sale.id)
           );
 
           return sortSalesByDate([...rows, ...paidLocalRows]);
@@ -180,16 +213,69 @@ export function DebtsScreen() {
     });
   }, []);
 
+  useEffect(() => {
+    if (!manualModalVisible) {
+      setCustomerSuggestions([]);
+      setSelectedCustomerKey(null);
+      setLoadingCustomers(false);
+      return;
+    }
+
+    let cancelled = false;
+    const query = manualCustomerSearch.trim();
+
+    const timeout = setTimeout(async () => {
+      try {
+        setLoadingCustomers(true);
+        const suggestions = await getCustomerSuggestions(query);
+
+        if (!cancelled) {
+          setCustomerSuggestions(suggestions);
+        }
+      } catch {
+        if (!cancelled) {
+          setCustomerSuggestions([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingCustomers(false);
+        }
+      }
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [manualModalVisible, manualCustomerSearch, refreshToken]);
+
   const resetManualForm = () => {
     setManualName('');
     setManualPhone('');
     setManualAmount('');
     setManualComment('');
+    setManualCustomerSearch('');
+    setSelectedCustomerKey(null);
   };
 
   const openManualDebt = () => {
     resetManualForm();
     setManualModalVisible(true);
+  };
+
+  const selectManualCustomer = (customer: DebtorSummary) => {
+    setSelectedCustomerKey(customer.key);
+    setManualCustomerSearch(customer.name === 'Клиент не указан' ? '' : customer.name);
+    setManualName(customer.name === 'Клиент не указан' ? '' : customer.name);
+    setManualPhone(customer.phone ?? '');
+  };
+
+  const startNewManualCustomer = () => {
+    const suggestedName = manualCustomerSearch.trim();
+    setSelectedCustomerKey(null);
+    setManualName((current) => current || suggestedName);
+    setManualPhone('');
+    setManualCustomerSearch('');
   };
 
   const saveManualDebt = async () => {
@@ -369,38 +455,63 @@ export function DebtsScreen() {
     setSelectedDebtSaleId(null);
   };
 
-  const clearPaidFromList = () => {
-    const paidVisibleIds = debtSales
+  const clearPaidForDebtor = (debtor: DebtorSummary) => {
+    const visibleIds = debtor.sales
+      .filter((sale) => !hiddenSaleIds.has(sale.id))
+      .map((sale) => sale.id);
+    const paidVisibleIds = debtor.sales
       .filter((sale) => sale.status === 'paid' && !hiddenSaleIds.has(sale.id))
       .map((sale) => sale.id);
 
+    const hideSales = (saleIds: string[]) => {
+      setHiddenSaleIds((current) => {
+        const next = new Set(current);
+        saleIds.forEach((id) => next.add(id));
+        return next;
+      });
+    };
+
+    if (!visibleIds.length) {
+      Alert.alert('Нечего очищать', 'У этого клиента нет записей в списке.');
+      return;
+    }
+
     if (!paidVisibleIds.length) {
-      Alert.alert('Нечего очищать', 'В списке нет оплаченных серых записей.');
+      Alert.alert(
+        'Очистить долги клиента?',
+        `${debtor.name}: оплаченных записей нет. "Все равно очистить" скроет все долги клиента, включая неоплаченные. История продаж не удалится.`,
+        [
+          { text: 'Отмена', style: 'cancel' },
+          {
+            text: 'Все равно очистить',
+            style: 'destructive',
+            onPress: () => hideSales(visibleIds),
+          },
+        ]
+      );
       return;
     }
 
     Alert.alert(
-      'Очистить список?',
-      `Будут скрыты оплаченные записи: ${paidVisibleIds.length}. История продаж не удалится.`,
+      'Очистить долги клиента?',
+      `${debtor.name}: можно скрыть только оплаченные записи (${paidVisibleIds.length}) или все долги клиента, включая неоплаченные. История продаж не удалится.`,
       [
         { text: 'Отмена', style: 'cancel' },
         {
-          text: 'Очистить',
+          text: 'Очистить оплаченные',
+          onPress: () => hideSales(paidVisibleIds),
+        },
+        {
+          text: 'Все равно очистить',
           style: 'destructive',
-          onPress: () => {
-            setHiddenSaleIds((current) => {
-              const next = new Set(current);
-              paidVisibleIds.forEach((id) => next.add(id));
-              return next;
-            });
-          },
+          onPress: () => hideSales(visibleIds),
         },
       ]
     );
   };
 
-  const renderDebtSale = ({ item }: { item: Sale }) => (
-    <DebtSaleCard sale={item} onPress={() => setSelectedDebtSaleId(item.id)} />
+  const renderDebtor = ({ item }: { item: DebtorSummary }) => (
+    <DebtorRow debtor={item} onPress={() => setSelectedDebtorKey(item.key)} />
   );
 
   const renderHomePayment = ({ item }: { item: Sale }) => (
@@ -464,20 +575,19 @@ export function DebtsScreen() {
   );
 
   const visibleDebtSales = debtSales.filter((sale) => !hiddenSaleIds.has(sale.id));
+  const debtors = groupSalesByCustomer(visibleDebtSales, searchTerm);
+  const selectedDebtor = selectedDebtorKey
+    ? groupSalesByCustomer(visibleDebtSales).find((debtor) => debtor.key === selectedDebtorKey) ?? null
+    : null;
 
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
         <Text style={styles.title}>Долги</Text>
         {activeSection === 'debts' ? (
-          <View style={styles.headerActions}>
-            <Pressable accessibilityRole="button" onPress={clearPaidFromList} style={styles.clearAllButton}>
-              <Text style={styles.clearAllText}>Очистить все</Text>
-            </Pressable>
-            <Pressable accessibilityRole="button" onPress={openManualDebt} style={styles.addButton}>
-              <Plus color="#FFFFFF" size={22} />
-            </Pressable>
-          </View>
+          <Pressable accessibilityRole="button" onPress={openManualDebt} style={styles.addButton}>
+            <Plus color="#FFFFFF" size={22} />
+          </Pressable>
         ) : null}
       </View>
 
@@ -540,9 +650,9 @@ export function DebtsScreen() {
 
       {activeSection === 'debts' ? (
         <FlatList
-          contentContainerStyle={visibleDebtSales.length ? styles.listContent : styles.emptyListContent}
-          data={visibleDebtSales}
-          keyExtractor={(item) => item.id}
+          contentContainerStyle={debtors.length ? styles.contactListContent : styles.emptyListContent}
+          data={debtors}
+          keyExtractor={(item) => item.key}
           keyboardShouldPersistTaps="handled"
           ListEmptyComponent={
             <View style={styles.emptyState}>
@@ -552,7 +662,7 @@ export function DebtsScreen() {
               </Text>
             </View>
           }
-          renderItem={renderDebtSale}
+          renderItem={renderDebtor}
           showsVerticalScrollIndicator={false}
         />
       ) : (
@@ -573,6 +683,59 @@ export function DebtsScreen() {
           showsVerticalScrollIndicator={false}
         />
       )}
+
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setSelectedDebtorKey(null)}
+        presentationStyle="fullScreen"
+        visible={Boolean(selectedDebtor && !selectedDebtSaleId)}
+      >
+        {selectedDebtor ? (
+          <View style={styles.manualScreen}>
+            <View style={styles.detailHeader}>
+              <View style={styles.detailTitleBlock}>
+                <Text numberOfLines={1} style={styles.detailTitle}>
+                  {selectedDebtor.name}
+                </Text>
+                <Text numberOfLines={1} style={styles.detailSubtitle}>
+                  {selectedDebtor.phone ?? 'Без телефона'}
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setSelectedDebtorKey(null)}
+                style={styles.closeButton}
+              >
+                <X color={colors.text} size={24} />
+              </Pressable>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.debtorDetailContent}>
+              <View style={styles.totalPanel}>
+                <Text style={styles.totalLabel}>Долг клиента</Text>
+                <Text style={styles.totalValue}>{formatMoney(selectedDebtor.totalAmount)}</Text>
+                <Text style={styles.totalMeta}>Записей: {selectedDebtor.salesCount}</Text>
+              </View>
+
+              <ActionButton
+                label="Очистить все"
+                onPress={() => clearPaidForDebtor(selectedDebtor)}
+                variant="danger"
+              />
+
+              <View style={styles.debtorSalesList}>
+                {selectedDebtor.sales.map((sale) => (
+                  <DebtSaleCard
+                    key={sale.id}
+                    sale={sale}
+                    onPress={() => setSelectedDebtSaleId(sale.id)}
+                  />
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+        ) : null}
+      </Modal>
 
       <Modal
         animationType="slide"
@@ -597,9 +760,88 @@ export function DebtsScreen() {
           </View>
 
           <ScrollView contentContainerStyle={styles.manualContent} keyboardShouldPersistTaps="handled">
+            <View style={styles.customerPanel}>
+              <View style={styles.customerPanelHeader}>
+                <Text style={styles.customerPanelTitle}>Клиент</Text>
+                {loadingCustomers ? <ActivityIndicator color={colors.primary} /> : null}
+              </View>
+              <Text style={styles.customerPanelHint}>
+                Выберите клиента из списка или заполните поля как нового.
+              </Text>
+
+              <View style={styles.customerSearchWrap}>
+                <Search color={colors.muted} size={18} />
+                <TextInput
+                  autoCapitalize="none"
+                  onChangeText={setManualCustomerSearch}
+                  placeholder="Поиск клиента"
+                  placeholderTextColor={colors.muted}
+                  style={styles.customerSearchInput}
+                  value={manualCustomerSearch}
+                />
+              </View>
+
+              {customerSuggestions.length ? (
+                <View style={styles.customerList}>
+                  {customerSuggestions.map((customer) => {
+                    const selected = selectedCustomerKey === customer.key;
+
+                    return (
+                      <Pressable
+                        accessibilityRole="button"
+                        key={customer.key}
+                        onPress={() => selectManualCustomer(customer)}
+                        style={({ pressed }) => [
+                          styles.customerOption,
+                          selected ? styles.customerOptionSelected : null,
+                          pressed ? styles.cardPressed : null,
+                        ]}
+                      >
+                        <View style={styles.customerOptionTop}>
+                          <Text numberOfLines={1} style={styles.customerOptionName}>
+                            {customer.name}
+                          </Text>
+                          {selected ? <CheckCircle2 color={colors.primary} size={18} /> : null}
+                        </View>
+                        <Text numberOfLines={1} style={styles.customerOptionPhone}>
+                          {customer.phone ?? 'Без телефона'}
+                        </Text>
+                        <Text style={styles.customerOptionDebt}>
+                          {customer.totalAmount > 0
+                            ? `Текущий долг: ${formatMoney(customer.totalAmount)}`
+                            : `${customer.salesCount} записей`}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : (
+                <Text style={styles.customerEmptyText}>
+                  {manualCustomerSearch.trim()
+                    ? 'Такого клиента пока нет. Он будет добавлен как новый.'
+                    : 'Введите имя или телефон, чтобы найти клиента.'}
+                </Text>
+              )}
+
+              <Pressable
+                accessibilityRole="button"
+                onPress={startNewManualCustomer}
+                style={({ pressed }) => [
+                  styles.newCustomerButton,
+                  pressed ? styles.cardPressed : null,
+                ]}
+              >
+                <Plus color={colors.primary} size={18} />
+                <Text style={styles.newCustomerText}>Новый клиент</Text>
+              </Pressable>
+            </View>
+
             <TextInput
               autoCapitalize="words"
-              onChangeText={setManualName}
+              onChangeText={(value) => {
+                setManualName(value);
+                setSelectedCustomerKey(null);
+              }}
               placeholder="Имя клиента"
               placeholderTextColor={colors.muted}
               style={styles.input}
@@ -607,7 +849,10 @@ export function DebtsScreen() {
             />
             <TextInput
               keyboardType="phone-pad"
-              onChangeText={setManualPhone}
+              onChangeText={(value) => {
+                setManualPhone(value);
+                setSelectedCustomerKey(null);
+              }}
               placeholder="Телефон, необязательно"
               placeholderTextColor={colors.muted}
               style={styles.input}
@@ -799,26 +1044,6 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '900',
   },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  clearAllButton: {
-    minHeight: 44,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-  },
-  clearAllText: {
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: '900',
-  },
   addButton: {
     width: 48,
     height: 48,
@@ -902,6 +1127,12 @@ const styles = StyleSheet.create({
     paddingBottom: 120,
     gap: 12,
   },
+  contactListContent: {
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 120,
+    gap: 1,
+  },
   emptyListContent: {
     flexGrow: 1,
     padding: 16,
@@ -935,6 +1166,36 @@ const styles = StyleSheet.create({
   saleCardPaid: {
     backgroundColor: '#EEF1F4',
     opacity: 0.82,
+  },
+  debtorRow: {
+    minHeight: 58,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: 12,
+  },
+  debtorRowPaid: {
+    backgroundColor: '#EEF1F4',
+    opacity: 0.82,
+  },
+  debtorName: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  debtorAmount: {
+    color: colors.danger,
+    fontSize: 17,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
+  debtorAmountPaid: {
+    color: colors.muted,
   },
   cardPressed: {
     opacity: 0.78,
@@ -1123,6 +1384,119 @@ const styles = StyleSheet.create({
   },
   detailActionButton: {
     flex: 1,
+  },
+  debtorDetailContent: {
+    padding: 16,
+    paddingBottom: 120,
+    gap: 14,
+  },
+  debtorSalesList: {
+    gap: 12,
+  },
+  customerPanel: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: '#FFFFFF',
+    padding: 12,
+    gap: 10,
+    ...shadow,
+  },
+  customerPanelHeader: {
+    minHeight: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  customerPanelTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  customerPanelHint: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  customerSearchWrap: {
+    minHeight: 48,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    paddingHorizontal: 12,
+  },
+  customerSearchInput: {
+    flex: 1,
+    minHeight: 48,
+    color: colors.text,
+    fontSize: 15,
+  },
+  customerList: {
+    gap: 8,
+  },
+  customerOption: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: 11,
+    gap: 5,
+  },
+  customerOptionSelected: {
+    borderColor: colors.primary,
+    backgroundColor: '#EAF7EF',
+  },
+  customerOptionTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  customerOptionName: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  customerOptionPhone: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  customerOptionDebt: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  customerEmptyText: {
+    borderRadius: 8,
+    backgroundColor: colors.surface,
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    padding: 12,
+  },
+  newCustomerButton: {
+    minHeight: 46,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+  },
+  newCustomerText: {
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: '900',
   },
   manualContent: {
     padding: 16,

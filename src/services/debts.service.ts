@@ -3,6 +3,7 @@ export {
   confirmSalesPayment,
   createManualDebt,
   filterSalesBySmartQuery,
+  getCustomerSuggestions,
   getDebtCustomers,
   getDebts,
   getHomePayments,

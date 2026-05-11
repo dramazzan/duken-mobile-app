@@ -11,7 +11,17 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { CheckCircle2, Clock3, HandCoins, Plus, Search, X } from 'lucide-react-native';
+import {
+  CalendarDays,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  HandCoins,
+  Plus,
+  Search,
+  X,
+} from 'lucide-react-native';
 
 import { ActionButton } from '../components/ActionButton';
 import { formatDateTime, formatMoney, parsePositiveNumber } from '../lib/format';
@@ -34,6 +44,68 @@ import { PAYMENT_METHOD_LABELS, SALE_STATUS_LABELS } from '../services/sales.ser
 import { SaleDetailsScreen } from './SaleDetailsScreen';
 
 type DebtSection = 'debts' | 'home';
+type DateFilter = 'all' | 'today' | 'yesterday' | 'custom';
+
+const weekdays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+
+function toDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateKey(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function getYesterdayKey() {
+  const date = new Date();
+  date.setDate(date.getDate() - 1);
+  return toDateKey(date);
+}
+
+function formatDateKey(dateKey: string) {
+  return parseDateKey(dateKey).toLocaleDateString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+}
+
+function getCalendarDays(monthDate: Date) {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const startOffset = (firstDay.getDay() + 6) % 7;
+  const start = new Date(year, month, 1 - startOffset);
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return date;
+  });
+}
+
+function saleMatchesDate(sale: Sale, dateFilter: DateFilter, selectedDate: string | null) {
+  if (dateFilter === 'all') {
+    return true;
+  }
+
+  const saleDateKey = toDateKey(new Date(sale.createdAt));
+
+  if (dateFilter === 'today') {
+    return saleDateKey === toDateKey(new Date());
+  }
+
+  if (dateFilter === 'yesterday') {
+    return saleDateKey === getYesterdayKey();
+  }
+
+  return Boolean(selectedDate && saleDateKey === selectedDate);
+}
 
 function sortSalesByDate(sales: Sale[]) {
   return [...sales].sort(
@@ -141,6 +213,10 @@ export function DebtsScreen() {
   const [debtSales, setDebtSales] = useState<Sale[]>([]);
   const [homePayments, setHomePayments] = useState<Sale[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [dateFilter, setDateFilter] = useState<DateFilter>('all');
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [calendarVisible, setCalendarVisible] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date());
   const [selectedDebtorKey, setSelectedDebtorKey] = useState<string | null>(null);
   const [selectedDebtSaleId, setSelectedDebtSaleId] = useState<string | null>(null);
   const [selectedHomeSaleId, setSelectedHomeSaleId] = useState<string | null>(null);
@@ -189,7 +265,7 @@ export function DebtsScreen() {
         setHomePayments([]);
       } else {
         const rows = await getHomePayments();
-        setHomePayments(filterSalesBySmartQuery(rows, searchTerm));
+        setHomePayments(rows);
         setDebtSales([]);
       }
     } catch (error) {
@@ -200,7 +276,7 @@ export function DebtsScreen() {
     } finally {
       setLoading(false);
     }
-  }, [activeSection, searchTerm]);
+  }, [activeSection]);
 
   useEffect(() => {
     const timeout = setTimeout(loadData, 220);
@@ -212,6 +288,41 @@ export function DebtsScreen() {
       setRefreshToken((current) => current + 1);
     });
   }, []);
+
+  const selectDateFilter = (filter: DateFilter) => {
+    setDateFilter(filter);
+
+    if (filter === 'all') {
+      setSelectedDate(null);
+    }
+
+    if (filter === 'today') {
+      setSelectedDate(toDateKey(new Date()));
+    }
+
+    if (filter === 'yesterday') {
+      setSelectedDate(getYesterdayKey());
+    }
+  };
+
+  const openCalendar = () => {
+    setCalendarMonth(selectedDate ? parseDateKey(selectedDate) : new Date());
+    setCalendarVisible(true);
+  };
+
+  const selectCalendarDate = (date: Date) => {
+    setSelectedDate(toDateKey(date));
+    setDateFilter('custom');
+    setCalendarVisible(false);
+  };
+
+  const changeCalendarMonth = (offset: number) => {
+    setCalendarMonth((current) => {
+      const next = new Date(current);
+      next.setMonth(current.getMonth() + offset);
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (!manualModalVisible) {
@@ -575,9 +686,27 @@ export function DebtsScreen() {
   );
 
   const visibleDebtSales = debtSales.filter((sale) => !hiddenSaleIds.has(sale.id));
-  const debtors = groupSalesByCustomer(visibleDebtSales, searchTerm);
+  const datedDebtSales = visibleDebtSales.filter((sale) =>
+    saleMatchesDate(sale, dateFilter, selectedDate)
+  );
+  const visibleHomePayments = filterSalesBySmartQuery(homePayments, searchTerm).filter((sale) =>
+    saleMatchesDate(sale, dateFilter, selectedDate)
+  );
+  const debtors = groupSalesByCustomer(datedDebtSales, searchTerm);
   const selectedDebtor = selectedDebtorKey
     ? groupSalesByCustomer(visibleDebtSales).find((debtor) => debtor.key === selectedDebtorKey) ?? null
+    : null;
+  const selectedDebtorSales = selectedDebtor
+    ? selectedDebtor.sales.filter((sale) => saleMatchesDate(sale, dateFilter, selectedDate))
+    : [];
+  const selectedDebtorByDate = selectedDebtor
+    ? {
+        ...selectedDebtor,
+        latestAt: selectedDebtorSales[0]?.createdAt ?? selectedDebtor.latestAt,
+        sales: selectedDebtorSales,
+        salesCount: selectedDebtorSales.length,
+        totalAmount: selectedDebtorSales.reduce((sum, sale) => sum + sale.outstandingAmount, 0),
+      }
     : null;
 
   return (
@@ -641,6 +770,67 @@ export function DebtsScreen() {
         {loading ? <ActivityIndicator color={colors.primary} /> : null}
       </View>
 
+      <ScrollView
+        contentContainerStyle={styles.dateFilters}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.dateFiltersScroll}
+      >
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => selectDateFilter('all')}
+          style={({ pressed }) => [
+            styles.dateChip,
+            dateFilter === 'all' ? styles.dateChipActive : null,
+            pressed ? styles.tabPressed : null,
+          ]}
+        >
+          <Text style={[styles.dateText, dateFilter === 'all' ? styles.dateTextActive : null]}>
+            Все даты
+          </Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => selectDateFilter('today')}
+          style={({ pressed }) => [
+            styles.dateChip,
+            dateFilter === 'today' ? styles.dateChipActive : null,
+            pressed ? styles.tabPressed : null,
+          ]}
+        >
+          <Text style={[styles.dateText, dateFilter === 'today' ? styles.dateTextActive : null]}>
+            Сегодня
+          </Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => selectDateFilter('yesterday')}
+          style={({ pressed }) => [
+            styles.dateChip,
+            dateFilter === 'yesterday' ? styles.dateChipActive : null,
+            pressed ? styles.tabPressed : null,
+          ]}
+        >
+          <Text style={[styles.dateText, dateFilter === 'yesterday' ? styles.dateTextActive : null]}>
+            Вчера
+          </Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          onPress={openCalendar}
+          style={({ pressed }) => [
+            styles.dateChip,
+            dateFilter === 'custom' ? styles.dateChipActive : null,
+            pressed ? styles.tabPressed : null,
+          ]}
+        >
+          <CalendarDays color={dateFilter === 'custom' ? colors.primary : colors.text} size={18} />
+          <Text style={[styles.dateText, dateFilter === 'custom' ? styles.dateTextActive : null]}>
+            {selectedDate && dateFilter === 'custom' ? formatDateKey(selectedDate) : 'Календарь'}
+          </Text>
+        </Pressable>
+      </ScrollView>
+
       {errorText ? (
         <View style={styles.errorBanner}>
           <Text style={styles.errorText}>{errorText}</Text>
@@ -667,8 +857,8 @@ export function DebtsScreen() {
         />
       ) : (
         <FlatList
-          contentContainerStyle={homePayments.length ? styles.listContent : styles.emptyListContent}
-          data={homePayments}
+          contentContainerStyle={visibleHomePayments.length ? styles.listContent : styles.emptyListContent}
+          data={visibleHomePayments}
           keyExtractor={(item) => item.id}
           keyboardShouldPersistTaps="handled"
           ListEmptyComponent={
@@ -713,25 +903,101 @@ export function DebtsScreen() {
             <ScrollView contentContainerStyle={styles.debtorDetailContent}>
               <View style={styles.totalPanel}>
                 <Text style={styles.totalLabel}>Долг клиента</Text>
-                <Text style={styles.totalValue}>{formatMoney(selectedDebtor.totalAmount)}</Text>
-                <Text style={styles.totalMeta}>Записей: {selectedDebtor.salesCount}</Text>
+                <Text style={styles.totalValue}>
+                  {formatMoney(selectedDebtorByDate?.totalAmount ?? 0)}
+                </Text>
+                <Text style={styles.totalMeta}>
+                  Записей: {selectedDebtorByDate?.salesCount ?? 0}
+                </Text>
               </View>
+
+              <ScrollView
+                contentContainerStyle={styles.debtorDateFilters}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.debtorDateFiltersScroll}
+              >
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => selectDateFilter('all')}
+                  style={({ pressed }) => [
+                    styles.dateChip,
+                    dateFilter === 'all' ? styles.dateChipActive : null,
+                    pressed ? styles.tabPressed : null,
+                  ]}
+                >
+                  <Text style={[styles.dateText, dateFilter === 'all' ? styles.dateTextActive : null]}>
+                    Все даты
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => selectDateFilter('today')}
+                  style={({ pressed }) => [
+                    styles.dateChip,
+                    dateFilter === 'today' ? styles.dateChipActive : null,
+                    pressed ? styles.tabPressed : null,
+                  ]}
+                >
+                  <Text style={[styles.dateText, dateFilter === 'today' ? styles.dateTextActive : null]}>
+                    Сегодня
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => selectDateFilter('yesterday')}
+                  style={({ pressed }) => [
+                    styles.dateChip,
+                    dateFilter === 'yesterday' ? styles.dateChipActive : null,
+                    pressed ? styles.tabPressed : null,
+                  ]}
+                >
+                  <Text style={[styles.dateText, dateFilter === 'yesterday' ? styles.dateTextActive : null]}>
+                    Вчера
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={openCalendar}
+                  style={({ pressed }) => [
+                    styles.dateChip,
+                    dateFilter === 'custom' ? styles.dateChipActive : null,
+                    pressed ? styles.tabPressed : null,
+                  ]}
+                >
+                  <CalendarDays color={dateFilter === 'custom' ? colors.primary : colors.text} size={18} />
+                  <Text style={[styles.dateText, dateFilter === 'custom' ? styles.dateTextActive : null]}>
+                    {selectedDate && dateFilter === 'custom' ? formatDateKey(selectedDate) : 'Календарь'}
+                  </Text>
+                </Pressable>
+              </ScrollView>
 
               <ActionButton
                 label="Очистить все"
-                onPress={() => clearPaidForDebtor(selectedDebtor)}
+                onPress={() => {
+                  if (selectedDebtorByDate) {
+                    clearPaidForDebtor(selectedDebtorByDate);
+                  }
+                }}
                 variant="danger"
               />
 
-              <View style={styles.debtorSalesList}>
-                {selectedDebtor.sales.map((sale) => (
-                  <DebtSaleCard
-                    key={sale.id}
-                    sale={sale}
-                    onPress={() => setSelectedDebtSaleId(sale.id)}
-                  />
-                ))}
-              </View>
+              {selectedDebtorByDate?.sales.length ? (
+                <View style={styles.debtorSalesList}>
+                  {selectedDebtorByDate.sales.map((sale) => (
+                    <DebtSaleCard
+                      key={sale.id}
+                      sale={sale}
+                      onPress={() => setSelectedDebtSaleId(sale.id)}
+                    />
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.debtorEmptyState}>
+                  <HandCoins color={colors.muted} size={36} />
+                  <Text style={styles.debtorEmptyTitle}>За эту дату долгов нет</Text>
+                </View>
+              )}
             </ScrollView>
           </View>
         ) : null}
@@ -1021,6 +1287,86 @@ export function DebtsScreen() {
           />
         ) : null}
       </Modal>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setCalendarVisible(false)}
+        transparent
+        visible={calendarVisible}
+      >
+        <View style={styles.calendarOverlay}>
+          <View style={styles.calendarModal}>
+            <View style={styles.calendarHeader}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => changeCalendarMonth(-1)}
+                style={styles.calendarIconButton}
+              >
+                <ChevronLeft color={colors.text} size={24} />
+              </Pressable>
+              <Text style={styles.calendarTitle}>
+                {calendarMonth.toLocaleDateString('ru-RU', {
+                  month: 'long',
+                  year: 'numeric',
+                })}
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => changeCalendarMonth(1)}
+                style={styles.calendarIconButton}
+              >
+                <ChevronRight color={colors.text} size={24} />
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setCalendarVisible(false)}
+                style={styles.calendarCloseButton}
+              >
+                <X color={colors.text} size={22} />
+              </Pressable>
+            </View>
+
+            <View style={styles.weekdays}>
+              {weekdays.map((day) => (
+                <Text key={day} style={styles.weekdayText}>
+                  {day}
+                </Text>
+              ))}
+            </View>
+
+            <View style={styles.calendarGrid}>
+              {getCalendarDays(calendarMonth).map((date) => {
+                const dateKey = toDateKey(date);
+                const selected = dateKey === selectedDate;
+                const currentMonth = date.getMonth() === calendarMonth.getMonth();
+
+                return (
+                  <Pressable
+                    accessibilityRole="button"
+                    key={dateKey}
+                    onPress={() => selectCalendarDate(date)}
+                    style={({ pressed }) => [
+                      styles.calendarDay,
+                      selected ? styles.calendarDaySelected : null,
+                      pressed ? styles.tabPressed : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.calendarDayText,
+                        !currentMonth ? styles.calendarDayMuted : null,
+                        selected ? styles.calendarDayTextSelected : null,
+                      ]}
+                    >
+                      {date.getDate()}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1104,6 +1450,42 @@ const styles = StyleSheet.create({
     minHeight: 52,
     color: colors.text,
     fontSize: 16,
+  },
+  dateFilters: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+  },
+  dateFiltersScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
+    height: 46,
+    marginBottom: 8,
+  },
+  dateChip: {
+    minHeight: 40,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+  },
+  dateChipActive: {
+    backgroundColor: '#EAF7EF',
+    borderColor: colors.primary,
+  },
+  dateText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  dateTextActive: {
+    color: colors.primary,
   },
   errorBanner: {
     marginHorizontal: 16,
@@ -1390,8 +1772,35 @@ const styles = StyleSheet.create({
     paddingBottom: 120,
     gap: 14,
   },
+  debtorDateFilters: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  debtorDateFiltersScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
+    height: 42,
+  },
   debtorSalesList: {
     gap: 12,
+  },
+  debtorEmptyState: {
+    minHeight: 140,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 18,
+  },
+  debtorEmptyTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '900',
+    marginTop: 10,
+    textAlign: 'center',
   },
   customerPanel: {
     borderRadius: 8,
@@ -1527,5 +1936,90 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopColor: colors.border,
     borderTopWidth: 1,
+  },
+  calendarOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  calendarModal: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: '#FFFFFF',
+    padding: 14,
+    ...shadow,
+  },
+  calendarHeader: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  calendarIconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  calendarCloseButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 8,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  calendarTitle: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '900',
+    textAlign: 'center',
+    textTransform: 'capitalize',
+  },
+  weekdays: {
+    flexDirection: 'row',
+    marginTop: 10,
+  },
+  weekdayText: {
+    flex: 1,
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  calendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 8,
+  },
+  calendarDay: {
+    width: `${100 / 7}%`,
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+  },
+  calendarDaySelected: {
+    backgroundColor: colors.primary,
+  },
+  calendarDayText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  calendarDayMuted: {
+    color: colors.muted,
+  },
+  calendarDayTextSelected: {
+    color: '#FFFFFF',
   },
 });

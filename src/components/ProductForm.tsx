@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { Barcode, Camera, ImagePlus, Save, X } from 'lucide-react-native';
 
-import { colors } from '../lib/theme';
+import { colors, shadow } from '../lib/theme';
 import { parseInteger, parsePositiveNumber } from '../lib/format';
 import { pickProductPhoto, takeProductPhoto } from '../lib/photoStorage';
 import type { Product, ProductFormValues, ProductInput } from '../lib/types';
@@ -433,16 +433,21 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
     paddingBottom: 120,
-    gap: 16,
+    paddingTop: 8,
+    gap: 14,
   },
   photoRow: {
-    flexDirection: 'row',
-    gap: 14,
-    alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: '#FFFFFF',
+    padding: 12,
+    gap: 12,
+    ...shadow,
   },
   photoBox: {
-    width: 112,
-    height: 112,
+    width: '100%',
+    height: 190,
     borderRadius: 8,
     backgroundColor: colors.surface,
     borderColor: colors.border,
@@ -456,21 +461,21 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   photoActions: {
-    flex: 1,
     gap: 8,
   },
   photoTitle: {
     color: colors.text,
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 18,
+    fontWeight: '900',
   },
   ocrBlock: {
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.surface,
+    backgroundColor: '#FFFFFF',
     padding: 14,
-    gap: 12,
+    gap: 10,
+    ...shadow,
   },
   ocrHeader: {
     minHeight: 24,
@@ -499,8 +504,8 @@ const styles = StyleSheet.create({
     minHeight: 48,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: '#FFFFFF',
+    borderColor: '#CDE8D7',
+    backgroundColor: '#F4FBF7',
     justifyContent: 'center',
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -525,7 +530,13 @@ const styles = StyleSheet.create({
     minHeight: 46,
   },
   field: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: '#FFFFFF',
+    padding: 12,
     gap: 8,
+    ...shadow,
   },
   label: {
     color: colors.text,
@@ -537,7 +548,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     color: colors.text,
     fontSize: 17,
     paddingHorizontal: 14,
@@ -554,12 +565,12 @@ const styles = StyleSheet.create({
   },
   twoColumns: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
   },
   halfField: {
     flex: 1,
   },
   submit: {
-    marginTop: 8,
+    marginTop: 4,
   },
 });

@@ -81,4 +81,33 @@ export type DebtorSummary = {
 
 export type SaleFilter = 'all' | PaymentMethod | SaleStatus;
 
-export type TabKey = 'cashier' | 'products' | 'add' | 'history' | 'debts';
+export type ExpenseCategory = 'purchase' | 'rent' | 'salary' | 'delivery' | 'utility' | 'other';
+
+export type Expense = {
+  id: string;
+  title: string;
+  amount: number;
+  category: ExpenseCategory;
+  comment: string | null;
+  expenseDate: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ExpenseInput = {
+  title: string;
+  amount: number;
+  category: ExpenseCategory;
+  comment?: string | null;
+  expenseDate: string;
+};
+
+export type TabKey =
+  | 'cashier'
+  | 'products'
+  | 'add'
+  | 'history'
+  | 'debts'
+  | 'expenses'
+  | 'statistics'
+  | 'services';

@@ -138,6 +138,39 @@ export type Database = {
           },
         ];
       };
+      expenses: {
+        Row: {
+          id: string;
+          title: string;
+          amount: number;
+          category: 'purchase' | 'rent' | 'salary' | 'delivery' | 'utility' | 'other';
+          comment: string | null;
+          expense_date: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          title: string;
+          amount: number;
+          category: 'purchase' | 'rent' | 'salary' | 'delivery' | 'utility' | 'other';
+          comment?: string | null;
+          expense_date?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          title?: string;
+          amount?: number;
+          category?: 'purchase' | 'rent' | 'salary' | 'delivery' | 'utility' | 'other';
+          comment?: string | null;
+          expense_date?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -207,3 +240,6 @@ export type SaleUpdate = Database['public']['Tables']['sales']['Update'];
 export type SaleItemRow = Database['public']['Tables']['sale_items']['Row'];
 export type SaleItemInsert = Database['public']['Tables']['sale_items']['Insert'];
 export type SaleItemUpdate = Database['public']['Tables']['sale_items']['Update'];
+export type ExpenseRow = Database['public']['Tables']['expenses']['Row'];
+export type ExpenseInsert = Database['public']['Tables']['expenses']['Insert'];
+export type ExpenseUpdate = Database['public']['Tables']['expenses']['Update'];

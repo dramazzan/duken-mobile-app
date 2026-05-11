@@ -7,7 +7,7 @@ import {
   View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { HandCoins, History, PackageSearch, PlusCircle, ShoppingCart } from 'lucide-react-native';
+import { Grid3X3, HandCoins, PackageSearch, PlusCircle, ShoppingCart } from 'lucide-react-native';
 import {
   SafeAreaProvider,
   SafeAreaView,
@@ -20,8 +20,11 @@ import type { CartLine, TabKey } from './src/lib/types';
 import { AddProductScreen } from './src/screens/AddProductScreen';
 import { CashierScreen } from './src/screens/CashierScreen';
 import { DebtsScreen } from './src/screens/DebtsScreen';
+import { ExpensesScreen } from './src/screens/ExpensesScreen';
 import { ProductsScreen } from './src/screens/ProductsScreen';
 import { SalesHistoryScreen } from './src/screens/SalesHistoryScreen';
+import { ServicesScreen } from './src/screens/ServicesScreen';
+import { StatisticsScreen } from './src/screens/StatisticsScreen';
 import { loadPersistedCart, savePersistedCart } from './src/services/cart-storage.service';
 import { getProductById } from './src/services/products.service';
 
@@ -33,8 +36,8 @@ const tabs: Array<{
   { key: 'cashier', label: 'Касса', Icon: ShoppingCart },
   { key: 'products', label: 'Товары', Icon: PackageSearch },
   { key: 'add', label: 'Добавить', Icon: PlusCircle },
-  { key: 'history', label: 'История', Icon: History },
   { key: 'debts', label: 'Долги', Icon: HandCoins },
+  { key: 'services', label: 'Сервисы', Icon: Grid3X3 },
 ];
 
 async function refreshCartProducts(cart: CartLine[]) {
@@ -143,6 +146,18 @@ function AppContent() {
       return <DebtsScreen />;
     }
 
+    if (activeTab === 'services') {
+      return <ServicesScreen onNavigate={setActiveTab} />;
+    }
+
+    if (activeTab === 'statistics') {
+      return <StatisticsScreen />;
+    }
+
+    if (activeTab === 'expenses') {
+      return <ExpensesScreen />;
+    }
+
     return (
       <CashierScreen
         cart={cart}
@@ -183,7 +198,10 @@ function AppContent() {
       <View style={styles.screen}>{renderScreen()}</View>
       <View style={[styles.nav, { paddingBottom: navBottomPadding }]}>
         {tabs.map(({ key, label, Icon }) => {
-          const active = activeTab === key;
+          const active =
+            activeTab === key ||
+            ((activeTab === 'history' || activeTab === 'statistics' || activeTab === 'expenses') &&
+              key === 'services');
           return (
             <Pressable
               accessibilityRole="tab"

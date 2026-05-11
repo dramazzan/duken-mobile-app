@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,10 +16,14 @@ import { Barcode, Camera, ImagePlus, Save, X } from 'lucide-react-native';
 
 import { colors } from '../lib/theme';
 import { parseInteger, parsePositiveNumber } from '../lib/format';
-import { takeProductPhoto } from '../lib/photoStorage';
+import { pickProductPhoto, takeProductPhoto } from '../lib/photoStorage';
 import type { Product, ProductFormValues, ProductInput } from '../lib/types';
+import { recognizeProductText } from '../services/text-recognition.service';
 import { ActionButton } from './ActionButton';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
+
+const OCR_FALLBACK_MESSAGE =
+  'Не удалось распознать название. Попробуйте сфотографировать товар ближе или введите название вручную.';
 
 const emptyValues = (barcode = ''): ProductFormValues => ({
   name: '',
@@ -46,6 +52,18 @@ type ProductFormProps = {
   onCancel?: () => void;
 };
 
+type OcrState = {
+  status: 'idle' | 'loading' | 'ready' | 'empty' | 'manual';
+  candidates: string[];
+  message: string | null;
+};
+
+const initialOcrState: OcrState = {
+  status: 'idle',
+  candidates: [],
+  message: null,
+};
+
 export function ProductForm({
   product,
   initialBarcode = '',
@@ -60,12 +78,14 @@ export function ProductForm({
   const [scannerVisible, setScannerVisible] = useState(false);
   const [saving, setSaving] = useState(false);
   const [photoLoading, setPhotoLoading] = useState(false);
+  const [ocrState, setOcrState] = useState<OcrState>(initialOcrState);
 
   const isEditing = Boolean(product);
 
   useEffect(() => {
     if (product) {
       setValues(valuesFromProduct(product));
+      setOcrState(initialOcrState);
       return;
     }
 
@@ -124,6 +144,7 @@ export function ProductForm({
 
       if (resetOnSuccess) {
         setValues(emptyValues());
+        setOcrState(initialOcrState);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось сохранить товар.';
@@ -133,20 +154,86 @@ export function ProductForm({
     }
   };
 
+  const runTextRecognition = async (imageUri: string) => {
+    setOcrState({ status: 'loading', candidates: [], message: null });
+
+    try {
+      const result = await recognizeProductText(imageUri);
+
+      if (result.candidates.length) {
+        setOcrState({
+          status: 'ready',
+          candidates: result.candidates,
+          message: null,
+        });
+        return;
+      }
+
+      setOcrState({
+        status: 'empty',
+        candidates: [],
+        message: OCR_FALLBACK_MESSAGE,
+      });
+    } catch (error) {
+      console.warn('Failed to recognize product text', error);
+      setOcrState({
+        status: 'empty',
+        candidates: [],
+        message: OCR_FALLBACK_MESSAGE,
+      });
+    }
+  };
+
+  const handleImageSelected = async (imageUri: string | null) => {
+    if (!imageUri) {
+      return;
+    }
+
+    setField('imageUri', imageUri);
+    await runTextRecognition(imageUri);
+  };
+
   const handlePhoto = async () => {
     try {
       setPhotoLoading(true);
       const imageUri = await takeProductPhoto();
-
-      if (imageUri) {
-        setField('imageUri', imageUri);
-      }
+      await handleImageSelected(imageUri);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось сделать фото.';
       Alert.alert('Фото товара', message);
     } finally {
       setPhotoLoading(false);
     }
+  };
+
+  const handlePickImage = async () => {
+    try {
+      setPhotoLoading(true);
+      const imageUri = await pickProductPhoto();
+      await handleImageSelected(imageUri);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Не удалось выбрать фото.';
+      Alert.alert('Фото товара', message);
+    } finally {
+      setPhotoLoading(false);
+    }
+  };
+
+  const clearPhoto = () => {
+    setField('imageUri', null);
+    setOcrState(initialOcrState);
+  };
+
+  const handleUseCandidate = (candidate: string) => {
+    setField('name', candidate);
+  };
+
+  const handleManualName = () => {
+    setOcrState((current) => ({
+      ...current,
+      status: 'manual',
+      message: null,
+    }));
   };
 
   const handleScanned = (barcode: string) => {
@@ -183,14 +270,76 @@ export function ProductForm({
                 onPress={handlePhoto}
                 variant="secondary"
               />
+              <ActionButton
+                icon={<ImagePlus color={colors.text} size={20} />}
+                label="Выбрать фото"
+                loading={photoLoading}
+                onPress={handlePickImage}
+                variant="secondary"
+              />
               {values.imageUri ? (
                 <ActionButton
                   icon={<X color={colors.danger} size={20} />}
                   label="Убрать фото"
-                  onPress={() => setField('imageUri', null)}
+                  onPress={clearPhoto}
                   variant="ghost"
                 />
               ) : null}
+            </View>
+          </View>
+
+          <View style={styles.ocrBlock}>
+            <View style={styles.ocrHeader}>
+              <Text style={styles.label}>Распознанный текст</Text>
+              {ocrState.status === 'loading' ? <ActivityIndicator color={colors.primary} /> : null}
+            </View>
+
+            {ocrState.status === 'idle' ? (
+              <Text style={styles.ocrMuted}>Сделайте или выберите фото, чтобы найти название на упаковке.</Text>
+            ) : null}
+
+            {ocrState.status === 'loading' ? (
+              <Text style={styles.ocrMuted}>Распознаем текст на фото...</Text>
+            ) : null}
+
+            {ocrState.message ? <Text style={styles.ocrMessage}>{ocrState.message}</Text> : null}
+
+            {ocrState.candidates.length ? (
+              <View style={styles.ocrOptions}>
+                {ocrState.candidates.map((candidate) => (
+                  <View key={candidate} style={styles.ocrOption}>
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => handleUseCandidate(candidate)}
+                      style={({ pressed }) => [styles.ocrCandidate, pressed ? styles.ocrCandidatePressed : null]}
+                    >
+                      <Text style={styles.ocrCandidateText}>{candidate}</Text>
+                    </Pressable>
+                    <ActionButton
+                      label="Использовать как название"
+                      onPress={() => handleUseCandidate(candidate)}
+                      style={styles.useNameButton}
+                      variant="secondary"
+                    />
+                  </View>
+                ))}
+              </View>
+            ) : null}
+
+            <View style={styles.ocrActions}>
+              <ActionButton
+                label={ocrState.status === 'empty' ? 'Сделать фото снова' : 'Сканировать фото заново'}
+                loading={photoLoading}
+                onPress={handlePhoto}
+                style={styles.ocrActionButton}
+                variant="secondary"
+              />
+              <ActionButton
+                label="Ввести вручную"
+                onPress={handleManualName}
+                style={styles.ocrActionButton}
+                variant="ghost"
+              />
             </View>
           </View>
 
@@ -314,6 +463,66 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 16,
     fontWeight: '800',
+  },
+  ocrBlock: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: 14,
+    gap: 12,
+  },
+  ocrHeader: {
+    minHeight: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  ocrMuted: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  ocrMessage: {
+    color: colors.warning,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  ocrOptions: {
+    gap: 10,
+  },
+  ocrOption: {
+    gap: 8,
+  },
+  ocrCandidate: {
+    minHeight: 48,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  ocrCandidatePressed: {
+    opacity: 0.72,
+  },
+  ocrCandidateText: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 22,
+  },
+  useNameButton: {
+    alignSelf: 'stretch',
+    minHeight: 44,
+  },
+  ocrActions: {
+    gap: 8,
+  },
+  ocrActionButton: {
+    minHeight: 46,
   },
   field: {
     gap: 8,

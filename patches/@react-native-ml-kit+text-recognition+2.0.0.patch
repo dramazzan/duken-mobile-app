@@ -1,0 +1,56 @@
+diff --git a/node_modules/@react-native-ml-kit/text-recognition/android/build.gradle b/node_modules/@react-native-ml-kit/text-recognition/android/build.gradle
+index 6a2e36f..2511a33 100644
+--- a/node_modules/@react-native-ml-kit/text-recognition/android/build.gradle
++++ b/node_modules/@react-native-ml-kit/text-recognition/android/build.gradle
+@@ -30,6 +30,7 @@ buildscript {
+ }
+ 
+ android {
++    namespace "com.reactnativemlkit.textrecognition"
+     compileSdkVersion safeExtGet('compileSdkVersion', DEFAULT_COMPILE_SDK_VERSION)
+     buildToolsVersion safeExtGet('buildToolsVersion', DEFAULT_BUILD_TOOLS_VERSION)
+     defaultConfig {
+@@ -59,8 +60,7 @@ repositories {
+ }
+ 
+ dependencies {
+-    //noinspection GradleDynamicVersion
+-    implementation 'com.facebook.react:react-native:+'  // From node_modules
++    implementation 'com.facebook.react:react-android'
+     // To recognize Latin script
+     implementation 'com.google.mlkit:text-recognition:16.0.1'
+     // To recognize Chinese script
+diff --git a/node_modules/@react-native-ml-kit/text-recognition/android/src/main/AndroidManifest.xml b/node_modules/@react-native-ml-kit/text-recognition/android/src/main/AndroidManifest.xml
+index a088559..35c4548 100644
+--- a/node_modules/@react-native-ml-kit/text-recognition/android/src/main/AndroidManifest.xml
++++ b/node_modules/@react-native-ml-kit/text-recognition/android/src/main/AndroidManifest.xml
+@@ -1,6 +1,5 @@
+ <!-- AndroidManifest.xml -->
+ 
+-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+-          package="com.rnmlkit.textrecognition">
++<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+ 
+ </manifest>
+diff --git a/node_modules/@react-native-ml-kit/text-recognition/android/src/main/java/com/rnmlkit/textrecognition/TextRecognitionModule.java b/node_modules/@react-native-ml-kit/text-recognition/android/src/main/java/com/rnmlkit/textrecognition/TextRecognitionModule.java
+index 004bfb3..d1e9911 100644
+--- a/node_modules/@react-native-ml-kit/text-recognition/android/src/main/java/com/rnmlkit/textrecognition/TextRecognitionModule.java
++++ b/node_modules/@react-native-ml-kit/text-recognition/android/src/main/java/com/rnmlkit/textrecognition/TextRecognitionModule.java
+@@ -1,4 +1,4 @@
+-package com.rnmlkit.textrecognition;
++package com.reactnativemlkit.textrecognition;
+ 
+ import android.graphics.Point;
+ import android.graphics.Rect;
+diff --git a/node_modules/@react-native-ml-kit/text-recognition/android/src/main/java/com/rnmlkit/textrecognition/TextRecognitionPackage.java b/node_modules/@react-native-ml-kit/text-recognition/android/src/main/java/com/rnmlkit/textrecognition/TextRecognitionPackage.java
+index fed8a89..3fe56f5 100644
+--- a/node_modules/@react-native-ml-kit/text-recognition/android/src/main/java/com/rnmlkit/textrecognition/TextRecognitionPackage.java
++++ b/node_modules/@react-native-ml-kit/text-recognition/android/src/main/java/com/rnmlkit/textrecognition/TextRecognitionPackage.java
+@@ -1,6 +1,6 @@
+ // TextRecognitionPackage.java
+ 
+-package com.rnmlkit.textrecognition;
++package com.reactnativemlkit.textrecognition;
+ 
+ import java.util.Arrays;
+ import java.util.Collections;

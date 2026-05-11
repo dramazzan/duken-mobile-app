@@ -2,7 +2,7 @@
   "expo": {
     "name": "Store Cashier",
     "slug": "duken",
-    "version": "1.0.1",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -20,7 +20,7 @@
     },
     "android": {
       "package": "com.storecashier.app",
-      "versionCode": 2,
+      "versionCode": 4,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -48,6 +48,7 @@
         "expo-image-picker",
         {
           "cameraPermission": "Камера нужна для фото товара.",
+          "photosPermission": "Галерея нужна для выбора фото товара.",
           "microphonePermission": false
         }
       ],

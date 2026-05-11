@@ -54,3 +54,24 @@ export async function takeProductPhoto() {
 
   return persistProductImage(result.assets[0].uri);
 }
+
+export async function pickProductPhoto() {
+  const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+  if (!permission.granted) {
+    throw new Error('Разрешите доступ к галерее, чтобы выбрать фото товара.');
+  }
+
+  const result = await ImagePicker.launchImageLibraryAsync({
+    allowsEditing: true,
+    aspect: [1, 1],
+    quality: 0.7,
+    mediaTypes: ['images'],
+  });
+
+  if (result.canceled || !result.assets?.[0]?.uri) {
+    return null;
+  }
+
+  return persistProductImage(result.assets[0].uri);
+}

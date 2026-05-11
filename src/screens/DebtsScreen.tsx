@@ -1,11 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Animated,
   FlatList,
   Modal,
-  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -18,16 +16,16 @@ import { CheckCircle2, Clock3, HandCoins, Plus, Search, X } from 'lucide-react-n
 import { ActionButton } from '../components/ActionButton';
 import { formatDateTime, formatMoney, parsePositiveNumber } from '../lib/format';
 import { colors, shadow } from '../lib/theme';
-import type { DebtorSummary, Sale } from '../lib/types';
+import type { Sale } from '../lib/types';
 import {
   confirmSalePayment,
-  confirmSalesPayment,
   createManualDebt,
   filterSalesBySmartQuery,
-  getDebtCustomers,
+  getDebts,
   getHomePayments,
   moveHomePaymentToDebt,
   recordDebtPayment,
+  returnSaleToUnpaid,
   subscribeToSales,
 } from '../services/debts.service';
 import { PAYMENT_METHOD_LABELS, SALE_STATUS_LABELS } from '../services/sales.service';
@@ -35,155 +33,85 @@ import { SaleDetailsScreen } from './SaleDetailsScreen';
 
 type DebtSection = 'debts' | 'home';
 
-function saleMatchesDaySearch(sale: Sale, query: string) {
-  const term = query.trim().toLocaleLowerCase('ru-RU');
-
-  if (!term) {
-    return true;
-  }
-
-  const date = new Date(sale.createdAt);
-  const today = new Date();
-  const yesterday = new Date();
-  yesterday.setDate(today.getDate() - 1);
-  const isSameDay = (left: Date, right: Date) =>
-    left.getFullYear() === right.getFullYear() &&
-    left.getMonth() === right.getMonth() &&
-    left.getDate() === right.getDate();
-
-  if (term === 'сегодня') {
-    return isSameDay(date, today);
-  }
-
-  if (term === 'вчера') {
-    return isSameDay(date, yesterday);
-  }
-
-  const day = String(date.getDate()).padStart(2, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const year = String(date.getFullYear());
-  const searchable = [
-    formatDateTime(sale.createdAt),
-    date.toLocaleDateString('ru-KZ'),
-    date.toLocaleDateString('ru-RU'),
-    new Intl.DateTimeFormat('ru-RU', { weekday: 'long' }).format(date),
-    `${day}.${month}`,
-    `${day}.${month}.${year}`,
-    `${year}-${month}-${day}`,
-  ]
-    .join(' ')
-    .toLocaleLowerCase('ru-RU');
-
-  return searchable.includes(term);
+function sortSalesByDate(sales: Sale[]) {
+  return [...sales].sort(
+    (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+  );
 }
 
-function SwipeableDebtEntry({
+function DebtSaleCard({
   sale,
-  confirming,
-  onOpenDetails,
-  onPartialPayment,
-  onConfirmPayment,
+  onPress,
 }: {
   sale: Sale;
-  confirming: boolean;
-  onOpenDetails: () => void;
-  onPartialPayment: () => void;
-  onConfirmPayment: () => void;
+  onPress: () => void;
 }) {
-  const translateX = useRef(new Animated.Value(0)).current;
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gesture) =>
-        Math.abs(gesture.dx) > 12 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
-      onPanResponderMove: (_, gesture) => {
-        translateX.setValue(Math.max(Math.min(gesture.dx, 112), -112));
-      },
-      onPanResponderRelease: (_, gesture) => {
-        const reset = (afterReset?: () => void) => {
-          Animated.spring(translateX, {
-            toValue: 0,
-            useNativeDriver: true,
-          }).start(afterReset);
-        };
-
-        if (gesture.dx > 86) {
-          reset(onPartialPayment);
-          return;
-        }
-
-        if (gesture.dx < -86) {
-          reset(onConfirmPayment);
-          return;
-        }
-
-        reset();
-      },
-      onPanResponderTerminate: () => {
-        Animated.spring(translateX, {
-          toValue: 0,
-          useNativeDriver: true,
-        }).start();
-      },
-    })
-  ).current;
+  const paid = sale.status === 'paid';
 
   return (
-    <View style={styles.swipeShell}>
-      <View style={styles.swipeBackground}>
-        <View style={styles.swipePartial}>
-          <Text style={styles.swipeText}>Частично</Text>
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.saleCard,
+        paid ? styles.saleCardPaid : null,
+        pressed ? styles.cardPressed : null,
+      ]}
+    >
+      <View style={styles.cardTop}>
+        <View style={styles.cardTitleBlock}>
+          <Text numberOfLines={1} style={styles.cardTitle}>
+            {sale.customerName ?? 'Клиент не указан'}
+          </Text>
+          <Text numberOfLines={1} style={styles.cardSubtitle}>
+            {sale.customerPhone ?? sale.saleNumber}
+          </Text>
         </View>
-        <View style={styles.swipeClose}>
-          <Text style={styles.swipeText}>Закрыть</Text>
-        </View>
+        <Text style={styles.cardAmount}>
+          {formatMoney(paid ? sale.totalAmount : sale.outstandingAmount)}
+        </Text>
       </View>
-      <Animated.View
-        {...panResponder.panHandlers}
-        style={[styles.entryCard, { transform: [{ translateX }] }]}
-      >
-        <Pressable
-          accessibilityRole="button"
-          onPress={onOpenDetails}
-          style={({ pressed }) => [styles.entryOpenArea, pressed ? styles.cardPressed : null]}
-        >
-          <View style={styles.cardTop}>
-            <View style={styles.cardTitleBlock}>
-              <Text style={styles.entryNumber}>{sale.saleNumber}</Text>
-              <Text style={styles.cardSubtitle}>{formatDateTime(sale.createdAt)}</Text>
-            </View>
-            <Text style={styles.cardAmount}>{formatMoney(sale.outstandingAmount)}</Text>
-          </View>
-          {sale.paidAmount > 0 ? (
-            <Text style={styles.paymentProgress}>
-              Оплачено {formatMoney(sale.paidAmount)} из {formatMoney(sale.totalAmount)}
-            </Text>
-          ) : null}
-          {sale.items?.length ? (
-            <Text numberOfLines={1} style={styles.itemsText}>
-              {sale.items.map((saleItem) => saleItem.productName).join(', ')}
-            </Text>
-          ) : (
-            <Text style={styles.itemsText}>Ручной долг</Text>
-          )}
-          {sale.comment ? (
-            <Text numberOfLines={2} style={styles.commentText}>
-              {sale.comment}
-            </Text>
-          ) : null}
-          {confirming ? <ActivityIndicator color={colors.primary} /> : null}
-        </Pressable>
-      </Animated.View>
-    </View>
+
+      <View style={styles.saleMeta}>
+        <View style={styles.methodBadge}>
+          <Text style={styles.methodText}>{PAYMENT_METHOD_LABELS[sale.paymentMethod]}</Text>
+        </View>
+        <View style={[styles.statusBadge, paid ? styles.statusPaid : styles.statusUnpaid]}>
+          <Text style={styles.statusText}>{SALE_STATUS_LABELS[sale.status]}</Text>
+        </View>
+        <Text style={styles.saleDate}>{formatDateTime(sale.createdAt)}</Text>
+      </View>
+
+      {sale.paidAmount > 0 ? (
+        <Text style={styles.paymentProgress}>
+          Оплачено {formatMoney(sale.paidAmount)} из {formatMoney(sale.totalAmount)}
+        </Text>
+      ) : null}
+
+      {sale.items?.length ? (
+        <Text numberOfLines={1} style={styles.itemsText}>
+          {sale.items.map((item) => item.productName).join(', ')}
+        </Text>
+      ) : (
+        <Text style={styles.itemsText}>Ручной долг</Text>
+      )}
+
+      {sale.comment ? (
+        <Text numberOfLines={2} style={styles.commentText}>
+          {sale.comment}
+        </Text>
+      ) : null}
+    </Pressable>
   );
 }
 
 export function DebtsScreen() {
   const [activeSection, setActiveSection] = useState<DebtSection>('debts');
-  const [debtors, setDebtors] = useState<DebtorSummary[]>([]);
+  const [debtSales, setDebtSales] = useState<Sale[]>([]);
   const [homePayments, setHomePayments] = useState<Sale[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedDebtor, setSelectedDebtor] = useState<DebtorSummary | null>(null);
-  const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
+  const [selectedDebtSaleId, setSelectedDebtSaleId] = useState<string | null>(null);
+  const [selectedHomeSaleId, setSelectedHomeSaleId] = useState<string | null>(null);
   const [manualModalVisible, setManualModalVisible] = useState(false);
   const [manualName, setManualName] = useState('');
   const [manualPhone, setManualPhone] = useState('');
@@ -191,14 +119,22 @@ export function DebtsScreen() {
   const [manualComment, setManualComment] = useState('');
   const [partialTarget, setPartialTarget] = useState<Sale | null>(null);
   const [partialAmount, setPartialAmount] = useState('');
-  const [detailSearchTerm, setDetailSearchTerm] = useState('');
+  const [hiddenSaleIds, setHiddenSaleIds] = useState<Set<string>>(new Set());
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [revertingId, setRevertingId] = useState<string | null>(null);
   const [movingId, setMovingId] = useState<string | null>(null);
   const [savingPartial, setSavingPartial] = useState(false);
   const [savingManual, setSavingManual] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
+  const [detailVersion, setDetailVersion] = useState(0);
+
+  const updateDebtSale = (saleId: string, updater: (sale: Sale) => Sale) => {
+    setDebtSales((current) =>
+      sortSalesByDate(current.map((sale) => (sale.id === saleId ? updater(sale) : sale)))
+    );
+  };
 
   const loadData = useCallback(async () => {
     try {
@@ -206,22 +142,27 @@ export function DebtsScreen() {
       setErrorText(null);
 
       if (activeSection === 'debts') {
-        const rows = await getDebtCustomers(searchTerm);
-        setDebtors(rows);
+        const rows = filterSalesBySmartQuery(await getDebts(), searchTerm);
+        setDebtSales((current) => {
+          const paidLocalRows = filterSalesBySmartQuery(
+            current.filter(
+              (sale) => sale.status === 'paid' && !rows.some((row) => row.id === sale.id)
+            ),
+            searchTerm
+          );
+
+          return sortSalesByDate([...rows, ...paidLocalRows]);
+        });
         setHomePayments([]);
-        setSelectedDebtor((current) =>
-          current ? rows.find((row) => row.key === current.key) ?? null : null
-        );
       } else {
         const rows = await getHomePayments();
         setHomePayments(filterSalesBySmartQuery(rows, searchTerm));
-        setDebtors([]);
-        setSelectedDebtor(null);
+        setDebtSales([]);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось загрузить долги.';
       setErrorText(message);
-      setDebtors([]);
+      setDebtSales([]);
       setHomePayments([]);
     } finally {
       setLoading(false);
@@ -266,15 +207,15 @@ export function DebtsScreen() {
 
     try {
       setSavingManual(true);
-      await createManualDebt({
+      const sale = await createManualDebt({
         customerName: manualName,
         customerPhone: manualPhone,
         totalAmount: amount,
         comment: manualComment,
       });
+      setDebtSales((current) => sortSalesByDate([sale, ...current]));
       setManualModalVisible(false);
       resetManualForm();
-      await loadData();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось добавить долг.';
       Alert.alert('Ошибка', message);
@@ -283,7 +224,25 @@ export function DebtsScreen() {
     }
   };
 
-  const confirmOneSale = (sale: Sale) => {
+  const markSalePaidLocally = (saleId: string) => {
+    updateDebtSale(saleId, (sale) => ({
+      ...sale,
+      status: 'paid',
+      paidAmount: sale.totalAmount,
+      outstandingAmount: 0,
+    }));
+  };
+
+  const markSaleUnpaidLocally = (saleId: string) => {
+    updateDebtSale(saleId, (sale) => ({
+      ...sale,
+      status: 'unpaid',
+      paidAmount: 0,
+      outstandingAmount: sale.totalAmount,
+    }));
+  };
+
+  const confirmDebtSale = (sale: Sale, reloadSale?: () => Promise<void>) => {
     Alert.alert('Оплата поступила?', `${sale.saleNumber}: ${formatMoney(sale.outstandingAmount)} станет оплачено.`, [
       { text: 'Отмена', style: 'cancel' },
       {
@@ -292,7 +251,9 @@ export function DebtsScreen() {
           try {
             setConfirmingId(sale.id);
             await confirmSalePayment(sale.id);
-            await loadData();
+            markSalePaidLocally(sale.id);
+            setDetailVersion((current) => current + 1);
+            await reloadSale?.();
           } catch (error) {
             const message = error instanceof Error ? error.message : 'Не удалось подтвердить оплату.';
             Alert.alert('Ошибка', message);
@@ -304,31 +265,27 @@ export function DebtsScreen() {
     ]);
   };
 
-  const confirmWholeDebt = (debtor: DebtorSummary) => {
-    Alert.alert('Оплатить весь долг?', `${debtor.name}: ${formatMoney(debtor.totalAmount)}`, [
+  const returnDebtSaleToUnpaid = (sale: Sale, reloadSale?: () => Promise<void>) => {
+    Alert.alert('Вернуть в неоплаченные?', `${sale.saleNumber} снова появится как долг.`, [
       { text: 'Отмена', style: 'cancel' },
       {
-        text: 'Подтвердить',
+        text: 'Вернуть',
         onPress: async () => {
           try {
-            setConfirmingId(debtor.key);
-            await confirmSalesPayment(debtor.sales.map((sale) => sale.id));
-            setSelectedDebtor(null);
-            await loadData();
+            setRevertingId(sale.id);
+            await returnSaleToUnpaid(sale.id);
+            markSaleUnpaidLocally(sale.id);
+            setDetailVersion((current) => current + 1);
+            await reloadSale?.();
           } catch (error) {
-            const message = error instanceof Error ? error.message : 'Не удалось закрыть долг.';
+            const message = error instanceof Error ? error.message : 'Не удалось вернуть долг.';
             Alert.alert('Ошибка', message);
           } finally {
-            setConfirmingId(null);
+            setRevertingId(null);
           }
         },
       },
     ]);
-  };
-
-  const openPartialPayment = (sale: Sale) => {
-    setPartialTarget(sale);
-    setPartialAmount('');
   };
 
   const savePartialPayment = async () => {
@@ -345,12 +302,13 @@ export function DebtsScreen() {
 
     try {
       setSavingPartial(true);
-
-      await recordDebtPayment(partialTarget.id, amount);
-
+      const updated = await recordDebtPayment(partialTarget.id, amount);
+      setDebtSales((current) =>
+        sortSalesByDate(current.map((sale) => (sale.id === updated.id ? updated : sale)))
+      );
+      setDetailVersion((current) => current + 1);
       setPartialTarget(null);
       setPartialAmount('');
-      await loadData();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось сократить долг.';
       Alert.alert('Ошибка', message);
@@ -367,8 +325,9 @@ export function DebtsScreen() {
         onPress: async () => {
           try {
             setMovingId(sale.id);
-            await moveHomePaymentToDebt(sale.id);
-            await loadData();
+            const moved = await moveHomePaymentToDebt(sale.id);
+            setHomePayments((current) => current.filter((item) => item.id !== sale.id));
+            setDebtSales((current) => sortSalesByDate([moved, ...current]));
           } catch (error) {
             const message = error instanceof Error ? error.message : 'Не удалось переместить в долг.';
             Alert.alert('Ошибка', message);
@@ -380,36 +339,76 @@ export function DebtsScreen() {
     ]);
   };
 
-  const renderDebtor = ({ item }: { item: DebtorSummary }) => (
-    <Pressable
-      accessibilityRole="button"
-      onPress={() => {
-        setDetailSearchTerm('');
-        setSelectedDebtor(item);
-      }}
-      style={({ pressed }) => [styles.debtorCard, pressed ? styles.cardPressed : null]}
-    >
-      <View style={styles.cardTop}>
-        <View style={styles.cardTitleBlock}>
-          <Text numberOfLines={1} style={styles.cardTitle}>
-            {item.name}
-          </Text>
-          <Text numberOfLines={1} style={styles.cardSubtitle}>
-            {item.phone ?? 'Без телефона'} · {item.salesCount} записей
-          </Text>
-        </View>
-        <Text style={styles.cardAmount}>{formatMoney(item.totalAmount)}</Text>
-      </View>
-      <Text style={styles.cardMeta}>Последний долг: {formatDateTime(item.latestAt)}</Text>
-    </Pressable>
+  const confirmHomePayment = (sale: Sale) => {
+    Alert.alert('Деньги поступили?', `Продажа ${sale.saleNumber} станет оплаченной.`, [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Подтвердить',
+        onPress: async () => {
+          try {
+            setConfirmingId(sale.id);
+            await confirmSalePayment(sale.id);
+            setHomePayments((current) => current.filter((item) => item.id !== sale.id));
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Не удалось подтвердить оплату.';
+            Alert.alert('Ошибка', message);
+          } finally {
+            setConfirmingId(null);
+          }
+        },
+      },
+    ]);
+  };
+
+  const hideDebtSale = (saleId: string) => {
+    setHiddenSaleIds((current) => {
+      const next = new Set(current);
+      next.add(saleId);
+      return next;
+    });
+    setSelectedDebtSaleId(null);
+  };
+
+  const clearPaidFromList = () => {
+    const paidVisibleIds = debtSales
+      .filter((sale) => sale.status === 'paid' && !hiddenSaleIds.has(sale.id))
+      .map((sale) => sale.id);
+
+    if (!paidVisibleIds.length) {
+      Alert.alert('Нечего очищать', 'В списке нет оплаченных серых записей.');
+      return;
+    }
+
+    Alert.alert(
+      'Очистить список?',
+      `Будут скрыты оплаченные записи: ${paidVisibleIds.length}. История продаж не удалится.`,
+      [
+        { text: 'Отмена', style: 'cancel' },
+        {
+          text: 'Очистить',
+          style: 'destructive',
+          onPress: () => {
+            setHiddenSaleIds((current) => {
+              const next = new Set(current);
+              paidVisibleIds.forEach((id) => next.add(id));
+              return next;
+            });
+          },
+        },
+      ]
+    );
+  };
+
+  const renderDebtSale = ({ item }: { item: Sale }) => (
+    <DebtSaleCard sale={item} onPress={() => setSelectedDebtSaleId(item.id)} />
   );
 
   const renderHomePayment = ({ item }: { item: Sale }) => (
-    <View style={styles.homeCard}>
+    <View style={styles.saleCard}>
       <Pressable
         accessibilityRole="button"
-        onPress={() => setSelectedSaleId(item.id)}
-        style={({ pressed }) => [styles.homeOpenArea, pressed ? styles.cardPressed : null]}
+        onPress={() => setSelectedHomeSaleId(item.id)}
+        style={({ pressed }) => [styles.saleOpenArea, pressed ? styles.cardPressed : null]}
       >
         <View style={styles.cardTop}>
           <View style={styles.cardTitleBlock}>
@@ -426,7 +425,7 @@ export function DebtsScreen() {
           <View style={styles.methodBadge}>
             <Text style={styles.methodText}>{PAYMENT_METHOD_LABELS[item.paymentMethod]}</Text>
           </View>
-          <View style={styles.pendingBadge}>
+          <View style={styles.statusPending}>
             <Text style={styles.statusText}>{SALE_STATUS_LABELS[item.status]}</Text>
           </View>
           <Text style={styles.saleDate}>{formatDateTime(item.createdAt)}</Text>
@@ -457,25 +456,28 @@ export function DebtsScreen() {
           icon={<CheckCircle2 color="#FFFFFF" size={20} />}
           label="Оплачено"
           loading={confirmingId === item.id}
-          onPress={() => confirmOneSale(item)}
+          onPress={() => confirmHomePayment(item)}
           style={styles.homeActionButton}
         />
       </View>
     </View>
   );
 
-  const selectedDebtorSales = selectedDebtor
-    ? selectedDebtor.sales.filter((sale) => saleMatchesDaySearch(sale, detailSearchTerm))
-    : [];
+  const visibleDebtSales = debtSales.filter((sale) => !hiddenSaleIds.has(sale.id));
 
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
         <Text style={styles.title}>Долги</Text>
         {activeSection === 'debts' ? (
-          <Pressable accessibilityRole="button" onPress={openManualDebt} style={styles.addButton}>
-            <Plus color="#FFFFFF" size={22} />
-          </Pressable>
+          <View style={styles.headerActions}>
+            <Pressable accessibilityRole="button" onPress={clearPaidFromList} style={styles.clearAllButton}>
+              <Text style={styles.clearAllText}>Очистить все</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" onPress={openManualDebt} style={styles.addButton}>
+              <Plus color="#FFFFFF" size={22} />
+            </Pressable>
+          </View>
         ) : null}
       </View>
 
@@ -519,7 +521,7 @@ export function DebtsScreen() {
           onChangeText={setSearchTerm}
           placeholder={
             activeSection === 'debts'
-              ? 'Имя, телефон, сумма, дата, товар'
+              ? 'Клиент, телефон, сумма, дата, товар'
               : 'Клиент, телефон, сумма, дата, товар'
           }
           placeholderTextColor={colors.muted}
@@ -538,19 +540,19 @@ export function DebtsScreen() {
 
       {activeSection === 'debts' ? (
         <FlatList
-          contentContainerStyle={debtors.length ? styles.listContent : styles.emptyListContent}
-          data={debtors}
-          keyExtractor={(item) => item.key}
+          contentContainerStyle={visibleDebtSales.length ? styles.listContent : styles.emptyListContent}
+          data={visibleDebtSales}
+          keyExtractor={(item) => item.id}
           keyboardShouldPersistTaps="handled"
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <HandCoins color={colors.muted} size={42} />
               <Text style={styles.emptyTitle}>
-                {loading ? 'Загружаем...' : errorText ?? 'Должников нет'}
+                {loading ? 'Загружаем...' : errorText ?? 'Долгов нет'}
               </Text>
             </View>
           }
-          renderItem={renderDebtor}
+          renderItem={renderDebtSale}
           showsVerticalScrollIndicator={false}
         />
       ) : (
@@ -571,82 +573,6 @@ export function DebtsScreen() {
           showsVerticalScrollIndicator={false}
         />
       )}
-
-      <Modal
-        animationType="slide"
-        onRequestClose={() => setSelectedDebtor(null)}
-        presentationStyle="fullScreen"
-        visible={Boolean(selectedDebtor)}
-      >
-        {selectedDebtor ? (
-          <View style={styles.detailScreen}>
-            <View style={styles.detailHeader}>
-              <View style={styles.detailTitleBlock}>
-                <Text numberOfLines={1} style={styles.detailTitle}>
-                  {selectedDebtor.name}
-                </Text>
-                <Text numberOfLines={1} style={styles.detailSubtitle}>
-                  {selectedDebtor.phone ?? 'Без телефона'}
-                </Text>
-              </View>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setSelectedDebtor(null)}
-                style={styles.closeButton}
-              >
-                <X color={colors.text} size={24} />
-              </Pressable>
-            </View>
-
-            <ScrollView contentContainerStyle={styles.detailContent} showsVerticalScrollIndicator={false}>
-              <View style={styles.totalPanel}>
-                <Text style={styles.totalLabel}>Остаток долга</Text>
-                <Text style={styles.totalValue}>{formatMoney(selectedDebtor.totalAmount)}</Text>
-                <Text style={styles.totalMeta}>{selectedDebtor.salesCount} записей</Text>
-              </View>
-
-              <ActionButton
-                disabled={!selectedDebtor.sales.length}
-                icon={<CheckCircle2 color="#FFFFFF" size={21} />}
-                label="Оплатить весь долг"
-                loading={confirmingId === selectedDebtor.key}
-                onPress={() => confirmWholeDebt(selectedDebtor)}
-              />
-
-              <View style={styles.detailSearchWrap}>
-                <Search color={colors.muted} size={20} />
-                <TextInput
-                  autoCapitalize="none"
-                  onChangeText={setDetailSearchTerm}
-                  placeholder="Найти по дню или дате"
-                  placeholderTextColor={colors.muted}
-                  style={styles.detailSearchInput}
-                  value={detailSearchTerm}
-                />
-              </View>
-
-              <View style={styles.debtEntries}>
-                {selectedDebtorSales.map((sale) => (
-                  <SwipeableDebtEntry
-                    confirming={confirmingId === sale.id}
-                    key={sale.id}
-                    onConfirmPayment={() => confirmOneSale(sale)}
-                    onOpenDetails={() => setSelectedSaleId(sale.id)}
-                    onPartialPayment={() => openPartialPayment(sale)}
-                    sale={sale}
-                  />
-                ))}
-
-                {!selectedDebtorSales.length ? (
-                  <View style={styles.emptyInline}>
-                    <Text style={styles.emptyInlineText}>За этот день записей нет</Text>
-                  </View>
-                ) : null}
-              </View>
-            </ScrollView>
-          </View>
-        ) : null}
-      </Modal>
 
       <Modal
         animationType="slide"
@@ -744,7 +670,7 @@ export function DebtsScreen() {
 
             <ScrollView contentContainerStyle={styles.manualContent} keyboardShouldPersistTaps="handled">
               <View style={styles.totalPanel}>
-                <Text style={styles.totalLabel}>Долг по записи</Text>
+                <Text style={styles.totalLabel}>Остаток долга</Text>
                 <Text style={styles.totalValue}>
                   {formatMoney(partialTarget.outstandingAmount)}
                 </Text>
@@ -774,15 +700,79 @@ export function DebtsScreen() {
 
       <Modal
         animationType="slide"
-        onRequestClose={() => setSelectedSaleId(null)}
+        onRequestClose={() => setSelectedDebtSaleId(null)}
         presentationStyle="fullScreen"
-        visible={Boolean(selectedSaleId)}
+        visible={Boolean(selectedDebtSaleId)}
       >
-        {selectedSaleId ? (
+        {selectedDebtSaleId ? (
           <SaleDetailsScreen
-            onClose={() => setSelectedSaleId(null)}
+            hideDefaultPaymentAction
+            key={`${selectedDebtSaleId}-${detailVersion}`}
+            onClose={() => setSelectedDebtSaleId(null)}
             onPaymentConfirmed={loadData}
-            saleId={selectedSaleId}
+            renderFooterActions={({ sale, reloadSale }) => (
+              <View style={styles.detailActions}>
+                {sale.status !== 'paid' ? (
+                  <>
+                    <ActionButton
+                      disabled={confirmingId === sale.id || revertingId === sale.id}
+                      label="Частичная оплата"
+                      onPress={() => {
+                        setPartialTarget(sale);
+                        setPartialAmount('');
+                      }}
+                      variant="secondary"
+                    />
+                    <ActionButton
+                      disabled={confirmingId === sale.id || revertingId === sale.id}
+                      icon={<CheckCircle2 color="#FFFFFF" size={20} />}
+                      label="Оплачено"
+                      loading={confirmingId === sale.id}
+                      onPress={() => confirmDebtSale(sale, reloadSale)}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <View style={styles.paidMark}>
+                      <Text style={styles.paidMarkText}>Оплачено</Text>
+                    </View>
+                    <View style={styles.detailActionRow}>
+                      <ActionButton
+                        disabled={confirmingId === sale.id}
+                        label="Вернуть на не оплачено"
+                        loading={revertingId === sale.id}
+                        onPress={() => returnDebtSaleToUnpaid(sale, reloadSale)}
+                        variant="secondary"
+                        style={styles.detailActionButton}
+                      />
+                      <ActionButton
+                        disabled={confirmingId === sale.id || revertingId === sale.id}
+                        label="Удалить из списка"
+                        onPress={() => hideDebtSale(sale.id)}
+                        variant="danger"
+                        style={styles.detailActionButton}
+                      />
+                    </View>
+                  </>
+                )}
+              </View>
+            )}
+            saleId={selectedDebtSaleId}
+          />
+        ) : null}
+      </Modal>
+
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setSelectedHomeSaleId(null)}
+        presentationStyle="fullScreen"
+        visible={Boolean(selectedHomeSaleId)}
+      >
+        {selectedHomeSaleId ? (
+          <SaleDetailsScreen
+            onClose={() => setSelectedHomeSaleId(null)}
+            onPaymentConfirmed={loadData}
+            saleId={selectedHomeSaleId}
           />
         ) : null}
       </Modal>
@@ -807,6 +797,26 @@ const styles = StyleSheet.create({
   title: {
     color: colors.text,
     fontSize: 28,
+    fontWeight: '900',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  clearAllButton: {
+    minHeight: 44,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  clearAllText: {
+    color: colors.text,
+    fontSize: 13,
     fontWeight: '900',
   },
   addButton: {
@@ -913,28 +923,23 @@ const styles = StyleSheet.create({
     marginTop: 12,
     textAlign: 'center',
   },
-  debtorCard: {
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: '#FFFFFF',
-    padding: 14,
-    gap: 8,
-    ...shadow,
-  },
-  homeCard: {
+  saleCard: {
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: '#FFFFFF',
     padding: 12,
-    gap: 12,
+    gap: 10,
     ...shadow,
+  },
+  saleCardPaid: {
+    backgroundColor: '#EEF1F4',
+    opacity: 0.82,
   },
   cardPressed: {
     opacity: 0.78,
   },
-  homeOpenArea: {
+  saleOpenArea: {
     gap: 9,
   },
   cardTop: {
@@ -963,11 +968,6 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     textAlign: 'right',
   },
-  cardMeta: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: '700',
-  },
   saleMeta: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -987,7 +987,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
   },
-  pendingBadge: {
+  statusBadge: {
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  statusPaid: {
+    backgroundColor: '#EAF7EF',
+  },
+  statusUnpaid: {
+    backgroundColor: '#FFF1F0',
+  },
+  statusPending: {
     borderRadius: 8,
     backgroundColor: '#FFF7E6',
     paddingHorizontal: 9,
@@ -1023,10 +1034,6 @@ const styles = StyleSheet.create({
   },
   homeActionButton: {
     flex: 1,
-  },
-  detailScreen: {
-    flex: 1,
-    backgroundColor: colors.background,
   },
   manualScreen: {
     flex: 1,
@@ -1068,28 +1075,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  detailContent: {
-    padding: 16,
-    paddingBottom: 120,
-    gap: 14,
-  },
-  detailSearchWrap: {
-    minHeight: 52,
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  detailSearchInput: {
-    flex: 1,
-    minHeight: 52,
-    color: colors.text,
-    fontSize: 16,
-  },
   totalPanel: {
     borderRadius: 8,
     borderWidth: 1,
@@ -1115,65 +1100,29 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginTop: 4,
   },
-  debtEntries: {
-    gap: 12,
-  },
-  swipeShell: {
+  paidMark: {
+    minHeight: 46,
     borderRadius: 8,
-    overflow: 'hidden',
-    backgroundColor: colors.surface,
-  },
-  swipeBackground: {
-    ...StyleSheet.absoluteFillObject,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  swipePartial: {
-    width: 120,
-    backgroundColor: '#EAF7EF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  swipeClose: {
-    width: 120,
-    marginLeft: 'auto',
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  swipeText: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: '900',
-  },
-  entryCard: {
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
     backgroundColor: '#FFFFFF',
-    padding: 12,
-    gap: 12,
-  },
-  entryOpenArea: {
-    gap: 8,
-  },
-  entryNumber: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: '900',
-  },
-  emptyInline: {
-    borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.surface,
-    padding: 16,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  emptyInlineText: {
+  paidMarkText: {
     color: colors.muted,
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '900',
+  },
+  detailActions: {
+    gap: 10,
+  },
+  detailActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  detailActionButton: {
+    flex: 1,
   },
   manualContent: {
     padding: 16,

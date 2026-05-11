@@ -9,5 +9,6 @@ export {
   groupSalesByCustomer,
   moveHomePaymentToDebt,
   recordDebtPayment,
+  returnSaleToUnpaid,
   subscribeToSales,
 } from './sales.service';

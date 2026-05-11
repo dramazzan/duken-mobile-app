@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -26,6 +26,12 @@ type SaleDetailsScreenProps = {
   saleId: string;
   onClose: () => void;
   onPaymentConfirmed?: () => void;
+  hideDefaultPaymentAction?: boolean;
+  renderFooterActions?: (args: {
+    sale: Sale;
+    confirming: boolean;
+    reloadSale: () => Promise<void>;
+  }) => ReactNode;
 };
 
 function getStatusStyle(status: SaleStatus) {
@@ -53,6 +59,8 @@ export function SaleDetailsScreen({
   saleId,
   onClose,
   onPaymentConfirmed,
+  hideDefaultPaymentAction = false,
+  renderFooterActions,
 }: SaleDetailsScreenProps) {
   const [sale, setSale] = useState<Sale | null>(null);
   const [loading, setLoading] = useState(false);
@@ -196,7 +204,11 @@ export function SaleDetailsScreen({
             </View>
           </ScrollView>
 
-          {sale.status !== 'paid' ? (
+          {renderFooterActions ? (
+            <View style={styles.footer}>
+              {renderFooterActions({ sale, confirming, reloadSale: loadSale })}
+            </View>
+          ) : sale.status !== 'paid' && !hideDefaultPaymentAction ? (
             <View style={styles.footer}>
               <ActionButton
                 icon={<CheckCircle2 color="#FFFFFF" size={22} />}

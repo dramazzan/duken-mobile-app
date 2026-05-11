@@ -404,6 +404,29 @@ export async function recordDebtPayment(saleId: string, amount: number) {
   }
 }
 
+export async function returnSaleToUnpaid(saleId: string) {
+  try {
+    const { data, error } = await supabase
+      .from('sales')
+      .update({ status: 'unpaid', paid_amount: 0 })
+      .eq('id', saleId)
+      .select('*')
+      .single();
+
+    if (error) {
+      throw new Error(normalizeSupabaseError(error.message));
+    }
+
+    return mapSaleRow(data);
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+
+    throw new Error('Не удалось вернуть долг в неоплаченные.');
+  }
+}
+
 export async function moveHomePaymentToDebt(saleId: string) {
   try {
     const { data, error } = await supabase

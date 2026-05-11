@@ -57,6 +57,8 @@ export type Sale = {
   id: string;
   saleNumber: string;
   totalAmount: number;
+  paidAmount: number;
+  outstandingAmount: number;
   paymentMethod: PaymentMethod;
   status: SaleStatus;
   customerName: string | null;

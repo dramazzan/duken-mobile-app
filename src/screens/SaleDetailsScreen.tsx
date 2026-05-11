@@ -145,6 +145,12 @@ export function SaleDetailsScreen({
                 </View>
               </View>
               <Text style={styles.total}>{formatMoney(sale.totalAmount)}</Text>
+              {sale.paidAmount > 0 || sale.status !== 'paid' ? (
+                <View style={styles.paymentRows}>
+                  <DetailRow label="Оплачено" value={formatMoney(sale.paidAmount)} />
+                  <DetailRow label="Остаток" value={formatMoney(sale.outstandingAmount)} />
+                </View>
+              ) : null}
             </View>
 
             <View style={styles.detailsPanel}>
@@ -194,7 +200,7 @@ export function SaleDetailsScreen({
             <View style={styles.footer}>
               <ActionButton
                 icon={<CheckCircle2 color="#FFFFFF" size={22} />}
-                label="Подтвердить оплату"
+                label="Подтвердить полную оплату"
                 loading={confirming}
                 onPress={handleConfirmPayment}
               />
@@ -305,6 +311,10 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 34,
     fontWeight: '900',
+  },
+  paymentRows: {
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
   },
   statusBadge: {
     alignSelf: 'flex-start',

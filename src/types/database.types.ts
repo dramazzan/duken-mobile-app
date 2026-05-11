@@ -47,6 +47,7 @@ export type Database = {
           id: string;
           sale_number: string;
           total_amount: number;
+          paid_amount: number;
           payment_method: 'cash' | 'transfer' | 'debt' | 'home_payment';
           status: 'paid' | 'unpaid' | 'pending';
           customer_name: string | null;
@@ -59,6 +60,7 @@ export type Database = {
           id?: string;
           sale_number?: string;
           total_amount: number;
+          paid_amount?: number;
           payment_method: 'cash' | 'transfer' | 'debt' | 'home_payment';
           status: 'paid' | 'unpaid' | 'pending';
           customer_name?: string | null;
@@ -71,6 +73,7 @@ export type Database = {
           id?: string;
           sale_number?: string;
           total_amount?: number;
+          paid_amount?: number;
           payment_method?: 'cash' | 'transfer' | 'debt' | 'home_payment';
           status?: 'paid' | 'unpaid' | 'pending';
           customer_name?: string | null;
@@ -157,6 +160,18 @@ export type Database = {
         };
         Returns: Database['public']['Tables']['sales']['Row'];
       };
+      confirm_sale_payment: {
+        Args: {
+          sale_id: string;
+        };
+        Returns: Database['public']['Tables']['sales']['Row'];
+      };
+      confirm_sale_payments: {
+        Args: {
+          sale_ids: string[];
+        };
+        Returns: Database['public']['Tables']['sales']['Row'][];
+      };
       decrease_product_quantity: {
         Args: {
           product_id: string;
@@ -169,6 +184,13 @@ export type Database = {
           items: Json;
         };
         Returns: Database['public']['Tables']['products']['Row'][];
+      };
+      record_debt_payment: {
+        Args: {
+          sale_id: string;
+          payment_amount: number;
+        };
+        Returns: Database['public']['Tables']['sales']['Row'];
       };
     };
     Enums: Record<string, never>;

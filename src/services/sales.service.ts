@@ -65,6 +65,15 @@ function normalizeSupabaseError(message: string) {
     return 'В Supabase не создана функция create_manual_debt. Выполните SQL migration supabase/migrations/202605110005_manual_debts.sql и перезапустите приложение.';
   }
 
+  if (
+    message.includes('Could not find the function public.record_debt_payment') ||
+    message.includes('record_debt_payment') && message.includes('schema cache') ||
+    message.includes('Could not find the function public.confirm_sale_payment') ||
+    message.includes('confirm_sale_payment') && message.includes('schema cache')
+  ) {
+    return 'В Supabase не созданы функции частичной оплаты долга. Выполните SQL migration supabase/migrations/202605110006_partial_debt_payments.sql и перезапустите приложение.';
+  }
+
   if (message.includes('not enough stock')) {
     return 'В Supabase еще действует старый запрет на продажу при нулевом остатке. Выполните обновленную SQL migration supabase/migrations/202605110003_create_sales.sql.';
   }
@@ -79,6 +88,10 @@ function normalizeSupabaseError(message: string) {
 
   if (message.includes('total amount must be greater than zero')) {
     return 'Укажите сумму долга больше нуля.';
+  }
+
+  if (message.includes('payment amount must be greater than zero')) {
+    return 'Укажите сумму оплаты больше нуля.';
   }
 
   if (message.includes('invalid payment method')) {
@@ -104,10 +117,16 @@ export function mapSaleItemRow(row: SaleItemRow): SaleItem {
 }
 
 export function mapSaleRow(row: SaleRow): Sale {
+  const totalAmount = Number(row.total_amount);
+  const paidAmount = Number(row.paid_amount ?? (row.status === 'paid' ? row.total_amount : 0));
+  const outstandingAmount = Math.max(totalAmount - paidAmount, 0);
+
   return {
     id: row.id,
     saleNumber: row.sale_number,
-    totalAmount: Number(row.total_amount),
+    totalAmount,
+    paidAmount,
+    outstandingAmount,
     paymentMethod: row.payment_method,
     status: row.status,
     customerName: row.customer_name,
@@ -164,6 +183,7 @@ function saleMatchesQuery(sale: Sale, query: string) {
   const haystack = [
     sale.saleNumber,
     String(Math.round(sale.totalAmount)),
+    String(Math.round(sale.outstandingAmount)),
     PAYMENT_METHOD_LABELS[sale.paymentMethod],
     sale.paymentMethod,
     SALE_STATUS_LABELS[sale.status],
@@ -321,12 +341,9 @@ export async function getSaleItems(saleId: string) {
 
 export async function confirmSalePayment(saleId: string) {
   try {
-    const { data, error } = await supabase
-      .from('sales')
-      .update({ status: 'paid' })
-      .eq('id', saleId)
-      .select('*')
-      .single();
+    const { data, error } = await supabase.rpc('confirm_sale_payment', {
+      sale_id: saleId,
+    });
 
     if (error) {
       throw new Error(normalizeSupabaseError(error.message));
@@ -348,11 +365,9 @@ export async function confirmSalesPayment(saleIds: string[]) {
       return [];
     }
 
-    const { data, error } = await supabase
-      .from('sales')
-      .update({ status: 'paid' })
-      .in('id', saleIds)
-      .select('*');
+    const { data, error } = await supabase.rpc('confirm_sale_payments', {
+      sale_ids: saleIds,
+    });
 
     if (error) {
       throw new Error(normalizeSupabaseError(error.message));
@@ -365,6 +380,27 @@ export async function confirmSalesPayment(saleIds: string[]) {
     }
 
     throw new Error('Не удалось подтвердить оплаты.');
+  }
+}
+
+export async function recordDebtPayment(saleId: string, amount: number) {
+  try {
+    const { data, error } = await supabase.rpc('record_debt_payment', {
+      sale_id: saleId,
+      payment_amount: amount,
+    });
+
+    if (error) {
+      throw new Error(normalizeSupabaseError(error.message));
+    }
+
+    return mapSaleRow(data);
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+
+    throw new Error('Не удалось записать оплату долга.');
   }
 }
 
@@ -428,7 +464,7 @@ export function groupSalesByCustomer(sales: Sale[], query = ''): DebtorSummary[]
     const current = groups.get(key);
 
     if (current) {
-      current.totalAmount += sale.totalAmount;
+      current.totalAmount += sale.outstandingAmount;
       current.salesCount += 1;
       current.sales.push(sale);
 
@@ -443,7 +479,7 @@ export function groupSalesByCustomer(sales: Sale[], query = ''): DebtorSummary[]
       key,
       name,
       phone,
-      totalAmount: sale.totalAmount,
+      totalAmount: sale.outstandingAmount,
       salesCount: 1,
       latestAt: sale.createdAt,
       sales: [sale],
@@ -479,7 +515,8 @@ export function groupSalesByCustomer(sales: Sale[], query = ''): DebtorSummary[]
 }
 
 export async function getDebts() {
-  return getSalesByPaymentAndStatus('debt', 'unpaid');
+  const debts = await getSalesByPaymentAndStatus('debt', 'unpaid');
+  return debts.filter((sale) => sale.outstandingAmount > 0);
 }
 
 export async function getDebtCustomers(query = '') {

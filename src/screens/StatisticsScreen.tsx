@@ -21,7 +21,7 @@ import {
 
 import { formatMoney } from '../lib/format';
 import { colors, shadow } from '../lib/theme';
-import type { Expense, ExpenseCategory, PaymentMethod, Product, Sale, SaleItem } from '../lib/types';
+import type { Expense, ExpenseCategory, PaymentMethod, Product, Sale, SaleItem, Seller } from '../lib/types';
 import {
   EXPENSE_CATEGORY_LABELS,
   getAllExpenses,
@@ -33,6 +33,7 @@ import {
   getAllSales,
   subscribeToSales,
 } from '../services/sales.service';
+import { getAllSellers, subscribeToSellers } from '../services/sellers.service';
 
 const weekdays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 const lowStockLimit = 5;
@@ -261,9 +262,11 @@ export function StatisticsScreen() {
   const [sales, setSales] = useState<Sale[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [sellers, setSellers] = useState<Seller[]>([]);
   const [selectedEndDate, setSelectedEndDate] = useState(toDateKey(new Date()));
   const [chartMode, setChartMode] = useState<ChartMode>('days');
   const [chartMetric, setChartMetric] = useState<ChartMetric>('count');
+  const [selectedSellerId, setSelectedSellerId] = useState('all');
   const [calendarMonth, setCalendarMonth] = useState(() => new Date());
   const [calendarVisible, setCalendarVisible] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -273,20 +276,30 @@ export function StatisticsScreen() {
     try {
       setLoading(true);
       setErrorText(null);
-      const [salesRows, productRows, expenseRows] = await Promise.all([
+      const [salesRows, productRows, expenseRows, sellerRows] = await Promise.all([
         getAllSales(),
         getAllProducts(),
         getAllExpenses(),
+        getAllSellers(),
       ]);
       setSales(salesRows);
       setProducts(productRows);
       setExpenses(expenseRows);
+      setSellers(sellerRows);
+      setSelectedSellerId((current) => {
+        if (current === 'all' || sellerRows.some((seller) => seller.id === current)) {
+          return current;
+        }
+
+        return 'all';
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось загрузить статистику.';
       setErrorText(message);
       setSales([]);
       setProducts([]);
       setExpenses([]);
+      setSellers([]);
     } finally {
       setLoading(false);
     }
@@ -300,35 +313,59 @@ export function StatisticsScreen() {
     const unsubscribeSales = subscribeToSales(loadData);
     const unsubscribeProducts = subscribeToProducts(loadData);
     const unsubscribeExpenses = subscribeToExpenses(loadData);
+    const unsubscribeSellers = subscribeToSellers(loadData);
 
     return () => {
       unsubscribeSales();
       unsubscribeProducts();
       unsubscribeExpenses();
+      unsubscribeSellers();
     };
   }, [loadData]);
 
+  const selectedSellerName = useMemo(() => {
+    if (selectedSellerId === 'all') {
+      return 'Все продавцы';
+    }
+
+    return sellers.find((seller) => seller.id === selectedSellerId)?.name ?? 'Продавец';
+  }, [selectedSellerId, sellers]);
+  const filteredSales = useMemo(
+    () =>
+      selectedSellerId === 'all'
+        ? sales
+        : sales.filter((sale) => sale.sellerId === selectedSellerId),
+    [sales, selectedSellerId]
+  );
   const periodRange = useMemo(
     () => getPeriodRange(chartMode, selectedEndDate),
     [chartMode, selectedEndDate]
   );
-  const periodSales = useMemo(
+  const periodAllSales = useMemo(
     () =>
       sales.filter((sale) =>
         isDateInRange(new Date(sale.createdAt), periodRange.start, periodRange.end)
       ),
     [periodRange, sales]
   );
-  const periodExpenses = useMemo(
+  const periodSales = useMemo(
+    () =>
+      filteredSales.filter((sale) =>
+        isDateInRange(new Date(sale.createdAt), periodRange.start, periodRange.end)
+      ),
+    [filteredSales, periodRange]
+  );
+  const periodExpensesRaw = useMemo(
     () =>
       expenses.filter((expense) =>
         isDateInRange(parseDateKey(expense.expenseDate), periodRange.start, periodRange.end)
       ),
     [expenses, periodRange]
   );
+  const periodExpenses = selectedSellerId === 'all' ? periodExpensesRaw : [];
   const todaySales = useMemo(
-    () => sales.filter((sale) => toDateKey(new Date(sale.createdAt)) === toDateKey(new Date())),
-    [sales]
+    () => filteredSales.filter((sale) => toDateKey(new Date(sale.createdAt)) === toDateKey(new Date())),
+    [filteredSales]
   );
 
   const chartData = useMemo(
@@ -338,7 +375,7 @@ export function StatisticsScreen() {
 
       if (chartMode === 'months') {
         return Array.from({ length: 12 }, (_, monthIndex): ChartPoint => {
-          const rows = sales.filter((sale) => {
+          const rows = filteredSales.filter((sale) => {
             const saleDate = new Date(sale.createdAt);
             return saleDate.getFullYear() === selectedYear && saleDate.getMonth() === monthIndex;
           });
@@ -355,7 +392,7 @@ export function StatisticsScreen() {
       if (chartMode === 'years') {
         return Array.from({ length: 7 }, (_, index): ChartPoint => {
           const year = selectedYear - 6 + index;
-          const rows = sales.filter((sale) => new Date(sale.createdAt).getFullYear() === year);
+          const rows = filteredSales.filter((sale) => new Date(sale.createdAt).getFullYear() === year);
 
           return {
             key: String(year),
@@ -367,7 +404,7 @@ export function StatisticsScreen() {
       }
 
       return getSevenDayKeys(selectedEndDate).map((dateKey): ChartPoint => {
-        const rows = sales.filter((sale) => toDateKey(new Date(sale.createdAt)) === dateKey);
+        const rows = filteredSales.filter((sale) => toDateKey(new Date(sale.createdAt)) === dateKey);
 
         return {
           key: dateKey,
@@ -377,7 +414,7 @@ export function StatisticsScreen() {
         };
       });
     },
-    [chartMode, sales, selectedEndDate]
+    [chartMode, filteredSales, selectedEndDate]
   );
 
   const maxChartValue = Math.max(
@@ -401,10 +438,10 @@ export function StatisticsScreen() {
   const profit = periodRevenue - expensesTotal;
   const paidRevenue = sumSales(periodSales.filter((sale) => sale.status === 'paid'));
   const debtOutstanding = sumOutstanding(
-    sales.filter((sale) => sale.paymentMethod === 'debt' && sale.status === 'unpaid')
+    filteredSales.filter((sale) => sale.paymentMethod === 'debt' && sale.status === 'unpaid')
   );
   const homePending = sumOutstanding(
-    sales.filter((sale) => sale.paymentMethod === 'home_payment' && sale.status === 'pending')
+    filteredSales.filter((sale) => sale.paymentMethod === 'home_payment' && sale.status === 'pending')
   );
   const averageCheck = periodSales.length ? periodRevenue / periodSales.length : 0;
 
@@ -419,7 +456,7 @@ export function StatisticsScreen() {
     }
   );
   const sellerBreakdown = Array.from(
-    periodSales.reduce((groups, sale) => {
+    periodAllSales.reduce((groups, sale) => {
       const current = groups.get(sale.sellerId);
 
       if (current) {
@@ -475,7 +512,9 @@ export function StatisticsScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>Статистика</Text>
-          <Text style={styles.subtitle}>{getRangeLabel(chartMode, selectedEndDate)}</Text>
+          <Text style={styles.subtitle}>
+            {getRangeLabel(chartMode, selectedEndDate)} · {selectedSellerName}
+          </Text>
         </View>
         <Pressable
           accessibilityRole="button"
@@ -516,6 +555,58 @@ export function StatisticsScreen() {
                 </Pressable>
               );
             })}
+          </View>
+
+          <View style={styles.sellerFilterBlock}>
+            <Text style={styles.filterLabel}>Продавец</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={styles.sellerFilters}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: selectedSellerId === 'all' }}
+                  onPress={() => setSelectedSellerId('all')}
+                  style={({ pressed }) => [
+                    styles.sellerChip,
+                    selectedSellerId === 'all' ? styles.sellerChipActive : null,
+                    pressed ? styles.pressed : null,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.sellerChipText,
+                      selectedSellerId === 'all' ? styles.sellerChipTextActive : null,
+                    ]}
+                  >
+                    Все продавцы
+                  </Text>
+                </Pressable>
+
+                {sellers.map((seller) => {
+                  const active = selectedSellerId === seller.id;
+
+                  return (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: active }}
+                      key={seller.id}
+                      onPress={() => setSelectedSellerId(seller.id)}
+                      style={({ pressed }) => [
+                        styles.sellerChip,
+                        active ? styles.sellerChipActive : null,
+                        pressed ? styles.pressed : null,
+                      ]}
+                    >
+                      <Text
+                        numberOfLines={1}
+                        style={[styles.sellerChipText, active ? styles.sellerChipTextActive : null]}
+                      >
+                        {seller.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </ScrollView>
           </View>
 
           <View style={styles.metricTabs}>
@@ -582,8 +673,16 @@ export function StatisticsScreen() {
           <StatCard label="За период" value={String(periodSales.length)} note={formatMoney(periodRevenue)} />
           <StatCard label="Средний чек" value={formatMoney(averageCheck)} />
           <StatCard label="Оплачено" value={formatMoney(paidRevenue)} />
-          <StatCard label="Расходы" value={formatMoney(expensesTotal)} note={`${periodExpenses.length} записей`} />
-          <StatCard label="Прибыль" value={formatMoney(profit)} note="Выручка минус расходы" />
+          <StatCard
+            label="Расходы"
+            value={formatMoney(expensesTotal)}
+            note={selectedSellerId === 'all' ? `${periodExpenses.length} записей` : 'Только общий магазин'}
+          />
+          <StatCard
+            label="Прибыль"
+            value={formatMoney(profit)}
+            note={selectedSellerId === 'all' ? 'Выручка минус расходы' : 'Доход продавца без общих расходов'}
+          />
         </View>
 
         <View style={styles.section}>
@@ -909,6 +1008,42 @@ const styles = StyleSheet.create({
   },
   modeTabTextActive: {
     color: '#FFFFFF',
+  },
+  sellerFilterBlock: {
+    gap: 8,
+  },
+  filterLabel: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  sellerFilters: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingRight: 2,
+  },
+  sellerChip: {
+    maxWidth: 180,
+    minHeight: 42,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  sellerChipActive: {
+    backgroundColor: '#EAF7EF',
+    borderColor: colors.primary,
+  },
+  sellerChipText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  sellerChipTextActive: {
+    color: colors.primary,
   },
   metricTabs: {
     flexDirection: 'row',

@@ -14,6 +14,7 @@ import {
 import {
   Banknote,
   Barcode,
+  Calculator,
   Clock3,
   CreditCard,
   HandCoins,
@@ -37,13 +38,18 @@ import {
   mapProductRow,
   subscribeToProducts,
 } from '../services/products.service';
-import { createSale, getCustomerSuggestions, PAYMENT_METHOD_LABELS } from '../services/sales.service';
+import {
+  createSale,
+  getAllSales,
+  getCustomerSuggestions,
+  PAYMENT_METHOD_LABELS,
+} from '../services/sales.service';
 import {
   getAllSellers,
   getDefaultSeller,
   subscribeToSellers,
 } from '../services/sellers.service';
-import type { CartLine, DebtorSummary, PaymentMethod, Product, Seller } from '../lib/types';
+import type { CartLine, DebtorSummary, PaymentMethod, Product, Sale, Seller } from '../lib/types';
 
 type CashierScreenProps = {
   cart: CartLine[];
@@ -62,6 +68,58 @@ const paymentOptions: Array<{
   { method: 'debt', description: 'Сохранить в долгах клиента', Icon: HandCoins },
   { method: 'home_payment', description: 'Клиент оплатит из дома', Icon: Clock3 },
 ];
+
+type SellerDailySummary = {
+  id: string;
+  name: string;
+  count: number;
+  total: number;
+};
+
+function toDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
+
+function sumSaleTotals(sales: Sale[]) {
+  return sales.reduce((sum, sale) => sum + sale.totalAmount, 0);
+}
+
+function sumPaidAmounts(sales: Sale[]) {
+  return sales.reduce((sum, sale) => sum + sale.paidAmount, 0);
+}
+
+function sumOutstanding(sales: Sale[]) {
+  return sales.reduce((sum, sale) => sum + sale.outstandingAmount, 0);
+}
+
+function getSellerDailySummaries(sales: Sale[]) {
+  const groups = new Map<string, SellerDailySummary>();
+
+  sales.forEach((sale) => {
+    const current = groups.get(sale.sellerId);
+
+    if (current) {
+      current.count += 1;
+      current.total += sale.totalAmount;
+      return;
+    }
+
+    groups.set(sale.sellerId, {
+      id: sale.sellerId,
+      name: sale.sellerName,
+      count: 1,
+      total: sale.totalAmount,
+    });
+  });
+
+  return Array.from(groups.values()).sort(
+    (left, right) => right.total - left.total || right.count - left.count
+  );
+}
 
 function isSameProduct(left: Product, right: Product) {
   return (
@@ -119,6 +177,10 @@ export function CashierScreen({
   const [sellers, setSellers] = useState<Seller[]>([]);
   const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null);
   const [sellersLoading, setSellersLoading] = useState(false);
+  const [cashierReportVisible, setCashierReportVisible] = useState(false);
+  const [cashierReportSales, setCashierReportSales] = useState<Sale[]>([]);
+  const [cashierReportLoading, setCashierReportLoading] = useState(false);
+  const [cashierReportError, setCashierReportError] = useState<string | null>(null);
 
   const total = useMemo(
     () => cart.reduce((sum, line) => sum + line.product.price * line.quantity, 0),
@@ -134,6 +196,30 @@ export function CashierScreen({
   const selectedSeller = useMemo(
     () => activeSellers.find((seller) => seller.id === selectedSellerId) ?? null,
     [activeSellers, selectedSellerId]
+  );
+  const paidTodaySales = useMemo(
+    () => cashierReportSales.filter((sale) => sale.status === 'paid'),
+    [cashierReportSales]
+  );
+  const cashTodaySales = useMemo(
+    () => paidTodaySales.filter((sale) => sale.paymentMethod === 'cash'),
+    [paidTodaySales]
+  );
+  const transferTodaySales = useMemo(
+    () => paidTodaySales.filter((sale) => sale.paymentMethod === 'transfer'),
+    [paidTodaySales]
+  );
+  const debtTodaySales = useMemo(
+    () => cashierReportSales.filter((sale) => sale.paymentMethod === 'debt'),
+    [cashierReportSales]
+  );
+  const homePaymentTodaySales = useMemo(
+    () => cashierReportSales.filter((sale) => sale.paymentMethod === 'home_payment'),
+    [cashierReportSales]
+  );
+  const todaySellerSummaries = useMemo(
+    () => getSellerDailySummaries(cashierReportSales),
+    [cashierReportSales]
   );
 
   useEffect(() => {
@@ -356,6 +442,29 @@ export function CashierScreen({
     ]);
   };
 
+  const loadCashierReport = async () => {
+    try {
+      setCashierReportLoading(true);
+      setCashierReportError(null);
+      const todayKey = toDateKey(new Date());
+      const rows = await getAllSales();
+      setCashierReportSales(
+        rows.filter((sale) => toDateKey(new Date(sale.createdAt)) === todayKey)
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Не удалось загрузить расчет кассы.';
+      setCashierReportError(message);
+      setCashierReportSales([]);
+    } finally {
+      setCashierReportLoading(false);
+    }
+  };
+
+  const openCashierReport = () => {
+    setCashierReportVisible(true);
+    loadCashierReport();
+  };
+
   const resetPaymentForm = () => {
     setSelectedPaymentMethod(null);
     setCustomerName('');
@@ -483,9 +592,18 @@ export function CashierScreen({
           <View>
             <Text style={styles.title}>Касса</Text>
           </View>
-          <View style={styles.cartBadge}>
-            <ShoppingCart color={colors.primary} size={22} />
-            <Text style={styles.cartBadgeText}>{cart.length}</Text>
+          <View style={styles.headerActions}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={openCashierReport}
+              style={({ pressed }) => [styles.reportButton, pressed ? styles.reportButtonPressed : null]}
+            >
+              <Calculator color={colors.primary} size={22} />
+            </Pressable>
+            <View style={styles.cartBadge}>
+              <ShoppingCart color={colors.primary} size={22} />
+              <Text style={styles.cartBadgeText}>{cart.length}</Text>
+            </View>
           </View>
         </View>
 
@@ -636,6 +754,110 @@ export function CashierScreen({
         title="Сканировать товар"
         visible={scannerVisible}
       />
+
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setCashierReportVisible(false)}
+        presentationStyle="pageSheet"
+        visible={cashierReportVisible}
+      >
+        <View style={styles.reportScreen}>
+          <View style={styles.reportHeader}>
+            <View style={styles.paymentTitleWrap}>
+              <Text style={styles.paymentTitle}>Касса за сегодня</Text>
+              <Text style={styles.paymentSubtitle}>
+                {new Date().toLocaleDateString('ru-RU', {
+                  day: '2-digit',
+                  month: 'long',
+                  year: 'numeric',
+                })}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setCashierReportVisible(false)}
+              style={styles.paymentClose}
+            >
+              <X color={colors.text} size={24} />
+            </Pressable>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.reportContent} showsVerticalScrollIndicator={false}>
+            {cashierReportError ? (
+              <View style={styles.reportError}>
+                <Text style={styles.reportErrorText}>{cashierReportError}</Text>
+              </View>
+            ) : null}
+
+            <View style={styles.reportSummaryGrid}>
+              <View style={styles.reportCard}>
+                <Text style={styles.reportCardLabel}>Оплачено</Text>
+                <Text style={styles.reportCardValue}>{formatMoney(sumPaidAmounts(paidTodaySales))}</Text>
+                <Text style={styles.reportCardMeta}>{paidTodaySales.length} чеков</Text>
+              </View>
+              <View style={styles.reportCard}>
+                <Text style={styles.reportCardLabel}>Всего продаж</Text>
+                <Text style={styles.reportCardValue}>{formatMoney(sumSaleTotals(cashierReportSales))}</Text>
+                <Text style={styles.reportCardMeta}>{cashierReportSales.length} чеков</Text>
+              </View>
+            </View>
+
+            <View style={styles.reportSection}>
+              <View style={styles.reportSectionHeader}>
+                <Text style={styles.reportSectionTitle}>Способы оплаты</Text>
+                {cashierReportLoading ? <ActivityIndicator color={colors.primary} /> : null}
+              </View>
+
+              <View style={styles.reportRow}>
+                <Text style={styles.reportRowLabel}>Наличные</Text>
+                <Text style={styles.reportRowValue}>
+                  {cashTodaySales.length} · {formatMoney(sumPaidAmounts(cashTodaySales))}
+                </Text>
+              </View>
+              <View style={styles.reportRow}>
+                <Text style={styles.reportRowLabel}>Перевод</Text>
+                <Text style={styles.reportRowValue}>
+                  {transferTodaySales.length} · {formatMoney(sumPaidAmounts(transferTodaySales))}
+                </Text>
+              </View>
+              <View style={styles.reportRow}>
+                <Text style={styles.reportRowLabel}>Долг</Text>
+                <Text style={styles.reportRowValue}>
+                  {debtTodaySales.length} · {formatMoney(sumOutstanding(debtTodaySales))}
+                </Text>
+              </View>
+              <View style={styles.reportRow}>
+                <Text style={styles.reportRowLabel}>Оплата из дома</Text>
+                <Text style={styles.reportRowValue}>
+                  {homePaymentTodaySales.length} · {formatMoney(sumOutstanding(homePaymentTodaySales))}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.reportSection}>
+              <Text style={styles.reportSectionTitle}>По продавцам</Text>
+              {todaySellerSummaries.length ? (
+                todaySellerSummaries.map((seller) => (
+                  <View key={seller.id} style={styles.reportRow}>
+                    <Text numberOfLines={1} style={styles.reportRowLabel}>
+                      {seller.name}
+                    </Text>
+                    <Text style={styles.reportRowValue}>
+                      {seller.count} · {formatMoney(seller.total)}
+                    </Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.reportEmpty}>
+                  {cashierReportLoading ? 'Загружаем...' : 'Сегодня продаж пока нет.'}
+                </Text>
+              )}
+            </View>
+
+            <ActionButton label="Обновить" onPress={loadCashierReport} variant="secondary" />
+          </ScrollView>
+        </View>
+      </Modal>
 
       <Modal
         animationType="slide"
@@ -855,6 +1077,24 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 28,
     fontWeight: '900',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  reportButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reportButtonPressed: {
+    opacity: 0.72,
   },
   cartBadge: {
     minWidth: 60,
@@ -1114,6 +1354,121 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopColor: colors.border,
     borderTopWidth: 1,
+  },
+  reportScreen: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  reportHeader: {
+    minHeight: 104,
+    paddingHorizontal: 16,
+    paddingTop: 50,
+    paddingBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: 12,
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+  },
+  reportContent: {
+    padding: 16,
+    paddingBottom: 40,
+    gap: 12,
+  },
+  reportError: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#F4B5B0',
+    backgroundColor: '#FFF1F0',
+    padding: 12,
+  },
+  reportErrorText: {
+    color: colors.danger,
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 20,
+  },
+  reportSummaryGrid: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  reportCard: {
+    flex: 1,
+    minHeight: 112,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: '#FFFFFF',
+    padding: 12,
+    justifyContent: 'space-between',
+    ...shadow,
+  },
+  reportCardLabel: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  reportCardValue: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+    marginTop: 8,
+  },
+  reportCardMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 6,
+  },
+  reportSection: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: '#FFFFFF',
+    padding: 14,
+    gap: 10,
+    ...shadow,
+  },
+  reportSectionHeader: {
+    minHeight: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  reportSectionTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  reportRow: {
+    minHeight: 44,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  reportRowLabel: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  reportRowValue: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
+  reportEmpty: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
   },
   paymentScreen: {
     flex: 1,

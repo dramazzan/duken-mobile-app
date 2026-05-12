@@ -9,6 +9,15 @@
         "buildType": "apk"
       }
     },
+    "preview-small": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_ANDROID_BUILD_ARCHS": "arm64-v8a"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
     "production": {
       "android": {
         "buildType": "app-bundle"

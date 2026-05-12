@@ -1,5 +1,5 @@
 diff --git a/node_modules/@react-native-ml-kit/text-recognition/android/build.gradle b/node_modules/@react-native-ml-kit/text-recognition/android/build.gradle
-index 6a2e36f..2511a33 100644
+index 6a2e36f..0864016 100644
 --- a/node_modules/@react-native-ml-kit/text-recognition/android/build.gradle
 +++ b/node_modules/@react-native-ml-kit/text-recognition/android/build.gradle
 @@ -30,6 +30,7 @@ buildscript {
@@ -10,7 +10,7 @@ index 6a2e36f..2511a33 100644
      compileSdkVersion safeExtGet('compileSdkVersion', DEFAULT_COMPILE_SDK_VERSION)
      buildToolsVersion safeExtGet('buildToolsVersion', DEFAULT_BUILD_TOOLS_VERSION)
      defaultConfig {
-@@ -59,8 +60,7 @@ repositories {
+@@ -59,16 +60,7 @@ repositories {
  }
  
  dependencies {
@@ -19,7 +19,15 @@ index 6a2e36f..2511a33 100644
 +    implementation 'com.facebook.react:react-android'
      // To recognize Latin script
      implementation 'com.google.mlkit:text-recognition:16.0.1'
-     // To recognize Chinese script
+-    // To recognize Chinese script
+-    implementation 'com.google.mlkit:text-recognition-chinese:16.0.1'
+-    // To recognize Devanagari script
+-    implementation 'com.google.mlkit:text-recognition-devanagari:16.0.1'
+-    // To recognize Japanese script
+-    implementation 'com.google.mlkit:text-recognition-japanese:16.0.1'
+-    // To recognize Korean script
+-    implementation 'com.google.mlkit:text-recognition-korean:16.0.1'
+ }
 diff --git a/node_modules/@react-native-ml-kit/text-recognition/android/src/main/AndroidManifest.xml b/node_modules/@react-native-ml-kit/text-recognition/android/src/main/AndroidManifest.xml
 index a088559..35c4548 100644
 --- a/node_modules/@react-native-ml-kit/text-recognition/android/src/main/AndroidManifest.xml
@@ -33,7 +41,7 @@ index a088559..35c4548 100644
  
  </manifest>
 diff --git a/node_modules/@react-native-ml-kit/text-recognition/android/src/main/java/com/rnmlkit/textrecognition/TextRecognitionModule.java b/node_modules/@react-native-ml-kit/text-recognition/android/src/main/java/com/rnmlkit/textrecognition/TextRecognitionModule.java
-index 004bfb3..d1e9911 100644
+index 004bfb3..20fafd8 100644
 --- a/node_modules/@react-native-ml-kit/text-recognition/android/src/main/java/com/rnmlkit/textrecognition/TextRecognitionModule.java
 +++ b/node_modules/@react-native-ml-kit/text-recognition/android/src/main/java/com/rnmlkit/textrecognition/TextRecognitionModule.java
 @@ -1,4 +1,4 @@
@@ -42,6 +50,41 @@ index 004bfb3..d1e9911 100644
  
  import android.graphics.Point;
  import android.graphics.Rect;
+@@ -25,10 +25,6 @@ import com.google.mlkit.vision.text.Text;
+ import com.google.mlkit.vision.text.TextRecognition;
+ import com.google.mlkit.vision.text.TextRecognizer;
+ import com.google.mlkit.vision.text.TextRecognizerOptionsInterface;
+-import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions;
+-import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions;
+-import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions;
+-import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions;
+ import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
+ 
+ import java.io.IOException;
+@@ -140,22 +136,7 @@ public class TextRecognitionModule extends ReactContextBaseJavaModule {
+ 
+     @NonNull
+     TextRecognizerOptionsInterface getScriptTextRecognizerOptions(@Nullable String script) {
+-        if (script == null) {
+-            return TextRecognizerOptions.DEFAULT_OPTIONS;
+-        }
+-
+-        switch (script) {
+-            case "Chinese":
+-                return new ChineseTextRecognizerOptions.Builder().build();
+-            case "Devanagari":
+-                return new DevanagariTextRecognizerOptions.Builder().build();
+-            case "Japanese":
+-                return new JapaneseTextRecognizerOptions.Builder().build();
+-            case "Korean":
+-                return new KoreanTextRecognizerOptions.Builder().build();
+-            default:
+-                return TextRecognizerOptions.DEFAULT_OPTIONS;
+-        }
++        return TextRecognizerOptions.DEFAULT_OPTIONS;
+     }
+ 
+     @ReactMethod
 diff --git a/node_modules/@react-native-ml-kit/text-recognition/android/src/main/java/com/rnmlkit/textrecognition/TextRecognitionPackage.java b/node_modules/@react-native-ml-kit/text-recognition/android/src/main/java/com/rnmlkit/textrecognition/TextRecognitionPackage.java
 index fed8a89..3fe56f5 100644
 --- a/node_modules/@react-native-ml-kit/text-recognition/android/src/main/java/com/rnmlkit/textrecognition/TextRecognitionPackage.java

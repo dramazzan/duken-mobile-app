@@ -28,6 +28,7 @@ const OCR_FALLBACK_MESSAGE =
 const emptyValues = (barcode = ''): ProductFormValues => ({
   name: '',
   barcode,
+  category: '',
   price: '',
   quantity: '',
   imageUri: null,
@@ -37,6 +38,7 @@ function valuesFromProduct(product: Product): ProductFormValues {
   return {
     name: product.name,
     barcode: product.barcode ?? '',
+    category: product.category ?? '',
     price: String(product.price),
     quantity: String(product.quantity),
     imageUri: product.imageUri,
@@ -104,6 +106,7 @@ export function ProductForm({
   const buildPayload = () => {
     const name = values.name.trim();
     const barcode = values.barcode.trim();
+    const category = values.category.trim();
     const price = parsePositiveNumber(values.price);
     const quantity = parseInteger(values.quantity);
 
@@ -125,6 +128,7 @@ export function ProductForm({
     return {
       name,
       barcode: barcode || null,
+      category: category || null,
       price,
       quantity,
       imageUri: values.imageUri,
@@ -375,6 +379,19 @@ export function ProductForm({
                 style={styles.scanButton}
               />
             </View>
+          </View>
+
+          <View style={styles.field}>
+            <Text style={styles.label}>Категория</Text>
+            <TextInput
+              autoCapitalize="sentences"
+              onChangeText={(text) => setField('category', text)}
+              placeholder="Например: Молочные продукты"
+              placeholderTextColor={colors.muted}
+              returnKeyType="next"
+              style={styles.input}
+              value={values.category}
+            />
           </View>
 
           <View style={styles.twoColumns}>

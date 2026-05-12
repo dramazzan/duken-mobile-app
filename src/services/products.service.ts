@@ -12,6 +12,7 @@ export function mapProductRow(row: ProductRow): Product {
     id: row.id,
     name: row.name,
     barcode: row.barcode,
+    category: row.category ?? null,
     price: Number(row.price),
     quantity: Number(row.quantity),
     imageUri: row.image_url,
@@ -39,11 +40,19 @@ function normalizeSupabaseError(message: string) {
     return 'В Supabase не созданы функции списания остатков. Выполните SQL migration supabase/migrations/202605110001_create_products.sql и перезапустите приложение.';
   }
 
+  if (
+    message.includes("Could not find the 'category' column") ||
+    message.includes('category') && message.includes('schema cache')
+  ) {
+    return 'В Supabase не добавлена категория товаров. Выполните SQL migration supabase/migrations/202605110010_add_product_categories.sql и перезапустите приложение.';
+  }
+
   return message;
 }
 
-export async function getAllProducts(searchTerm = '') {
+export async function getAllProducts(searchTerm = '', category: string | null = null) {
   const term = searchTerm.trim();
+  const normalizedCategory = category?.trim() || null;
   let query = supabase
     .from('products')
     .select('*')
@@ -52,7 +61,11 @@ export async function getAllProducts(searchTerm = '') {
 
   if (term) {
     const escapedTerm = term.replaceAll('%', '\\%').replaceAll('_', '\\_');
-    query = query.or(`name.ilike.%${escapedTerm}%,barcode.ilike.%${escapedTerm}%`);
+    query = query.or(`name.ilike.%${escapedTerm}%,barcode.ilike.%${escapedTerm}%,category.ilike.%${escapedTerm}%`);
+  }
+
+  if (normalizedCategory) {
+    query = query.eq('category', normalizedCategory);
   }
 
   const { data, error } = await query;
@@ -62,6 +75,34 @@ export async function getAllProducts(searchTerm = '') {
   }
 
   return (data ?? []).map(mapProductRow);
+}
+
+export async function getProductCategories() {
+  const { data, error } = await supabase
+    .from('products')
+    .select('category')
+    .not('category', 'is', null)
+    .order('category', { ascending: true });
+
+  if (error) {
+    throw new Error(`Не удалось загрузить категории: ${normalizeSupabaseError(error.message)}`);
+  }
+
+  const seen = new Set<string>();
+
+  return (data ?? [])
+    .map((row) => row.category?.trim())
+    .filter((category): category is string => Boolean(category))
+    .filter((category) => {
+      const key = category.toLocaleLowerCase('ru-RU');
+
+      if (seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    });
 }
 
 export async function getProductById(id: string) {
@@ -105,6 +146,7 @@ export async function createProduct(input: ProductInput) {
   const payload: ProductInsert = {
     name: input.name.trim(),
     barcode: input.barcode?.trim() || null,
+    category: input.category?.trim() || null,
     price: input.price,
     quantity: input.quantity,
     image_url: imageUrl,
@@ -130,6 +172,7 @@ export async function updateProduct(id: string, input: ProductInput) {
   const payload: ProductUpdate = {
     name: input.name.trim(),
     barcode: input.barcode?.trim() || null,
+    category: input.category?.trim() || null,
     price: input.price,
     quantity: input.quantity,
     image_url: imageUrl,

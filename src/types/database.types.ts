@@ -14,6 +14,7 @@ export type Database = {
           id: string;
           name: string;
           barcode: string | null;
+          category: string | null;
           price: number;
           quantity: number;
           image_url: string | null;
@@ -24,6 +25,7 @@ export type Database = {
           id?: string;
           name: string;
           barcode?: string | null;
+          category?: string | null;
           price: number;
           quantity: number;
           image_url?: string | null;
@@ -34,6 +36,7 @@ export type Database = {
           id?: string;
           name?: string;
           barcode?: string | null;
+          category?: string | null;
           price?: number;
           quantity?: number;
           image_url?: string | null;

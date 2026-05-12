@@ -2,6 +2,7 @@ export type Product = {
   id: string;
   name: string;
   barcode: string | null;
+  category: string | null;
   price: number;
   quantity: number;
   imageUri: string | null;
@@ -12,6 +13,7 @@ export type Product = {
 export type ProductFormValues = {
   name: string;
   barcode: string;
+  category: string;
   price: string;
   quantity: string;
   imageUri: string | null;
@@ -20,6 +22,7 @@ export type ProductFormValues = {
 export type ProductInput = {
   name: string;
   barcode: string | null;
+  category: string | null;
   price: number;
   quantity: number;
   imageUri: string | null;

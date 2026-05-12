@@ -5,6 +5,7 @@ import {
   Image,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -16,7 +17,13 @@ import { ActionButton } from '../components/ActionButton';
 import { ProductForm } from '../components/ProductForm';
 import { formatMoney } from '../lib/format';
 import { colors, shadow } from '../lib/theme';
-import { deleteProduct, getAllProducts, subscribeToProducts, updateProduct } from '../services/products.service';
+import {
+  deleteProduct,
+  getAllProducts,
+  getProductCategories,
+  subscribeToProducts,
+  updateProduct,
+} from '../services/products.service';
 import type { Product, ProductInput } from '../lib/types';
 
 type ProductsScreenProps = {
@@ -26,7 +33,9 @@ type ProductsScreenProps = {
 
 export function ProductsScreen({ refreshToken, onInventoryChanged }: ProductsScreenProps) {
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -35,15 +44,19 @@ export function ProductsScreen({ refreshToken, onInventoryChanged }: ProductsScr
     try {
       setLoading(true);
       setErrorText(null);
-      const rows = await getAllProducts(searchTerm);
+      const [rows, categoryRows] = await Promise.all([
+        getAllProducts(searchTerm, selectedCategory),
+        getProductCategories(),
+      ]);
       setProducts(rows);
+      setCategories(categoryRows);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось загрузить товары.';
       setErrorText(message);
     } finally {
       setLoading(false);
     }
-  }, [searchTerm]);
+  }, [searchTerm, selectedCategory]);
 
   useEffect(() => {
     loadProducts();
@@ -106,6 +119,7 @@ export function ProductsScreen({ refreshToken, onInventoryChanged }: ProductsScr
           {item.name}
         </Text>
         <Text style={styles.productBarcode}>{item.barcode ?? 'Без штрих-кода'}</Text>
+        <Text style={styles.productCategory}>{item.category ?? 'Без категории'}</Text>
         <View style={styles.productMeta}>
           <Text style={styles.price}>{formatMoney(item.price)}</Text>
           <Text style={[styles.stock, item.quantity <= 0 ? styles.stockWarning : null]}>
@@ -141,6 +155,49 @@ export function ProductsScreen({ refreshToken, onInventoryChanged }: ProductsScr
           value={searchTerm}
         />
       </View>
+
+      <ScrollView
+        contentContainerStyle={styles.categoryFilters}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.categoryFiltersScroll}
+      >
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ selected: selectedCategory === null }}
+          onPress={() => setSelectedCategory(null)}
+          style={({ pressed }) => [
+            styles.categoryChip,
+            selectedCategory === null ? styles.categoryChipActive : null,
+            pressed ? styles.categoryChipPressed : null,
+          ]}
+        >
+          <Text style={[styles.categoryChipText, selectedCategory === null ? styles.categoryChipTextActive : null]}>
+            Все
+          </Text>
+        </Pressable>
+        {categories.map((category) => {
+          const active = selectedCategory === category;
+
+          return (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              key={category}
+              onPress={() => setSelectedCategory(category)}
+              style={({ pressed }) => [
+                styles.categoryChip,
+                active ? styles.categoryChipActive : null,
+                pressed ? styles.categoryChipPressed : null,
+              ]}
+            >
+              <Text numberOfLines={1} style={[styles.categoryChipText, active ? styles.categoryChipTextActive : null]}>
+                {category}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
 
       {errorText ? (
         <View style={styles.errorBanner}>
@@ -246,6 +303,40 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 16,
   },
+  categoryFiltersScroll: {
+    maxHeight: 46,
+    marginBottom: 8,
+  },
+  categoryFilters: {
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  categoryChip: {
+    maxWidth: 180,
+    minHeight: 40,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  categoryChipActive: {
+    backgroundColor: '#EAF7EF',
+    borderColor: colors.primary,
+  },
+  categoryChipPressed: {
+    opacity: 0.72,
+  },
+  categoryChipText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  categoryChipTextActive: {
+    color: colors.primary,
+  },
   errorBanner: {
     marginHorizontal: 16,
     marginBottom: 10,
@@ -310,6 +401,17 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 13,
     marginTop: 3,
+  },
+  productCategory: {
+    alignSelf: 'flex-start',
+    borderRadius: 8,
+    backgroundColor: '#EAF7EF',
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '900',
+    marginTop: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   productMeta: {
     flexDirection: 'row',

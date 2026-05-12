@@ -15,7 +15,7 @@ import {
 } from 'react-native-safe-area-context';
 
 import { assertSupabaseConfigured } from './src/lib/supabase';
-import { colors } from './src/lib/theme';
+import { applyTheme, colors, getThemeColors, type ThemeMode } from './src/lib/theme';
 import type { CartLine, TabKey } from './src/lib/types';
 import { AddProductScreen } from './src/screens/AddProductScreen';
 import { CashierScreen } from './src/screens/CashierScreen';
@@ -24,10 +24,12 @@ import { ExpensesScreen } from './src/screens/ExpensesScreen';
 import { ProductsScreen } from './src/screens/ProductsScreen';
 import { SalesHistoryScreen } from './src/screens/SalesHistoryScreen';
 import { ServicesScreen } from './src/screens/ServicesScreen';
+import { SettingsScreen } from './src/screens/SettingsScreen';
 import { SellersScreen } from './src/screens/SellersScreen';
 import { StatisticsScreen } from './src/screens/StatisticsScreen';
 import { loadPersistedCart, savePersistedCart } from './src/services/cart-storage.service';
 import { getProductById } from './src/services/products.service';
+import { loadThemeMode, saveThemeMode } from './src/services/settings.service';
 
 const tabs: Array<{
   key: TabKey;
@@ -62,13 +64,22 @@ function AppContent() {
   const [inventoryVersion, setInventoryVersion] = useState(0);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [themeMode, setThemeMode] = useState<ThemeMode>('light');
   const insets = useSafeAreaInsets();
   const navBottomPadding = Math.max(insets.bottom, 8);
+  const palette = getThemeColors(themeMode);
 
   useEffect(() => {
     let mounted = true;
 
     const bootstrap = async () => {
+      const savedTheme = await loadThemeMode();
+      applyTheme(savedTheme);
+
+      if (mounted) {
+        setThemeMode(savedTheme);
+      }
+
       try {
         assertSupabaseConfigured();
       } catch (reason) {
@@ -115,6 +126,14 @@ function AppContent() {
     setInventoryVersion((current) => current + 1);
   };
 
+  const handleThemeChange = (mode: ThemeMode) => {
+    applyTheme(mode);
+    setThemeMode(mode);
+    saveThemeMode(mode).catch((reason) => {
+      console.warn('Could not save theme mode', reason);
+    });
+  };
+
   const handleUnknownBarcode = (barcode: string) => {
     setPendingBarcode(barcode);
     setActiveTab('add');
@@ -148,7 +167,7 @@ function AppContent() {
     }
 
     if (activeTab === 'services') {
-      return <ServicesScreen onNavigate={setActiveTab} />;
+      return <ServicesScreen onNavigate={setActiveTab} themeMode={themeMode} />;
     }
 
     if (activeTab === 'statistics') {
@@ -163,6 +182,17 @@ function AppContent() {
       return <SellersScreen />;
     }
 
+    if (activeTab === 'settings') {
+      return (
+        <SettingsScreen
+          onClearCart={() => setCart([])}
+          onNavigate={setActiveTab}
+          onThemeChange={handleThemeChange}
+          themeMode={themeMode}
+        />
+      );
+    }
+
     return (
       <CashierScreen
         cart={cart}
@@ -175,8 +205,11 @@ function AppContent() {
 
   if (error) {
     return (
-      <SafeAreaView edges={['top', 'right', 'bottom', 'left']} style={styles.safeArea}>
-        <StatusBar style="dark" />
+      <SafeAreaView
+        edges={['top', 'right', 'bottom', 'left']}
+        style={[styles.safeArea, { backgroundColor: palette.background }]}
+      >
+        <StatusBar style={themeMode === 'dark' ? 'light' : 'dark'} />
         <View style={styles.center}>
           <Text style={styles.errorTitle}>Ошибка запуска</Text>
           <Text style={styles.errorText}>{error}</Text>
@@ -187,8 +220,11 @@ function AppContent() {
 
   if (!ready) {
     return (
-      <SafeAreaView edges={['top', 'right', 'bottom', 'left']} style={styles.safeArea}>
-        <StatusBar style="dark" />
+      <SafeAreaView
+        edges={['top', 'right', 'bottom', 'left']}
+        style={[styles.safeArea, { backgroundColor: palette.background }]}
+      >
+        <StatusBar style={themeMode === 'dark' ? 'light' : 'dark'} />
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} size="large" />
           <Text style={styles.loadingText}>Подключаем облачную базу...</Text>
@@ -198,17 +234,30 @@ function AppContent() {
   }
 
   return (
-    <SafeAreaView edges={['top', 'right', 'left']} style={styles.safeArea}>
-      <StatusBar style="dark" />
+    <SafeAreaView
+      edges={['top', 'right', 'left']}
+      style={[styles.safeArea, { backgroundColor: palette.background }]}
+    >
+      <StatusBar style={themeMode === 'dark' ? 'light' : 'dark'} />
       <View style={styles.screen}>{renderScreen()}</View>
-      <View style={[styles.nav, { paddingBottom: navBottomPadding }]}>
+      <View
+        style={[
+          styles.nav,
+          {
+            backgroundColor: palette.card,
+            borderTopColor: palette.border,
+            paddingBottom: navBottomPadding,
+          },
+        ]}
+      >
         {tabs.map(({ key, label, Icon }) => {
           const active =
             activeTab === key ||
             ((activeTab === 'history' ||
               activeTab === 'statistics' ||
               activeTab === 'expenses' ||
-              activeTab === 'sellers') &&
+              activeTab === 'sellers' ||
+              activeTab === 'settings') &&
               key === 'services');
           return (
             <Pressable
@@ -222,8 +271,15 @@ function AppContent() {
                 pressed ? styles.navItemPressed : null,
               ]}
             >
-              <Icon color={active ? colors.primary : colors.muted} size={24} />
-              <Text style={[styles.navLabel, active ? styles.navLabelActive : null]}>{label}</Text>
+              <Icon color={active ? palette.primary : palette.muted} size={24} />
+              <Text
+                style={[
+                  styles.navLabel,
+                  { color: active ? palette.primary : palette.muted },
+                ]}
+              >
+                {label}
+              </Text>
             </Pressable>
           );
         })}

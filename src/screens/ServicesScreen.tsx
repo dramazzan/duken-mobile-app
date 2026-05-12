@@ -5,17 +5,19 @@ import {
   PackageSearch,
   PlusCircle,
   ReceiptText,
+  Settings,
   ShoppingCart,
   TrendingUp,
   Users,
   type LucideIcon,
 } from 'lucide-react-native';
 
-import { colors, shadow } from '../lib/theme';
+import { getThemeColors, shadow, type ThemeMode } from '../lib/theme';
 import type { TabKey } from '../lib/types';
 
 type ServicesScreenProps = {
   onNavigate: (tab: TabKey) => void;
+  themeMode: ThemeMode;
 };
 
 const services: Array<{
@@ -55,6 +57,12 @@ const services: Array<{
     Icon: Users,
   },
   {
+    key: 'settings',
+    title: 'Настройки',
+    subtitle: 'Касса и данные',
+    Icon: Settings,
+  },
+  {
     key: 'cashier',
     title: 'Касса',
     subtitle: 'Новая продажа',
@@ -74,7 +82,10 @@ const services: Array<{
   },
 ];
 
-export function ServicesScreen({ onNavigate }: ServicesScreenProps) {
+export function ServicesScreen({ onNavigate, themeMode }: ServicesScreenProps) {
+  const palette = getThemeColors(themeMode);
+  const styles = createStyles(palette);
+
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
@@ -92,7 +103,7 @@ export function ServicesScreen({ onNavigate }: ServicesScreenProps) {
               style={({ pressed }) => [styles.serviceTile, pressed ? styles.tilePressed : null]}
             >
               <View style={styles.iconBox}>
-                <Icon color={colors.primary} size={28} />
+                <Icon color={palette.primary} size={28} />
               </View>
               <Text numberOfLines={1} style={styles.tileTitle}>
                 {title}
@@ -108,10 +119,11 @@ export function ServicesScreen({ onNavigate }: ServicesScreenProps) {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(palette: ReturnType<typeof getThemeColors>) {
+  return StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: palette.background,
   },
   header: {
     paddingHorizontal: 16,
@@ -119,12 +131,12 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   title: {
-    color: colors.text,
+    color: palette.text,
     fontSize: 28,
     fontWeight: '900',
   },
   subtitle: {
-    color: colors.muted,
+    color: palette.muted,
     fontSize: 14,
     fontWeight: '700',
     marginTop: 4,
@@ -144,8 +156,8 @@ const styles = StyleSheet.create({
     minHeight: 142,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: '#FFFFFF',
+    borderColor: palette.border,
+    backgroundColor: palette.card,
     padding: 14,
     justifyContent: 'space-between',
     ...shadow,
@@ -162,16 +174,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   tileTitle: {
-    color: colors.text,
+    color: palette.text,
     fontSize: 17,
     fontWeight: '900',
     marginTop: 12,
   },
   tileSubtitle: {
-    color: colors.muted,
+    color: palette.muted,
     fontSize: 13,
     fontWeight: '700',
     lineHeight: 18,
     marginTop: 4,
   },
-});
+  });
+}

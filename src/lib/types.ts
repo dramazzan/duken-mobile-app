@@ -82,6 +82,7 @@ export type Sale = {
   comment: string | null;
   sellerId: string;
   sellerName: string;
+  deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
   items?: SaleItem[];
@@ -128,5 +129,6 @@ export type TabKey =
   | 'debts'
   | 'expenses'
   | 'sellers'
+  | 'settings'
   | 'statistics'
   | 'services';

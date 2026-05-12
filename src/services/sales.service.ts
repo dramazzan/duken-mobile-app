@@ -78,6 +78,10 @@ function normalizeSupabaseError(message: string) {
     return 'В Supabase еще действует старый запрет на продажу при нулевом остатке. Выполните обновленную SQL migration supabase/migrations/202605110003_create_sales.sql.';
   }
 
+  if (message.includes('deleted_at')) {
+    return 'В Supabase не добавлено мягкое удаление истории. Выполните SQL migration supabase/migrations/202605110009_settings_and_deleted_sales.sql.';
+  }
+
   if (message.includes('customer name is required')) {
     return 'Укажите имя клиента.';
   }
@@ -138,12 +142,13 @@ export function mapSaleRow(row: SaleRow): Sale {
     comment: row.comment,
     sellerId: row.seller_id,
     sellerName: row.seller_name,
+    deletedAt: row.deleted_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-function mapSaleWithItems(row: SaleWithItemsRow): Sale {
+export function mapSaleWithItems(row: SaleWithItemsRow): Sale {
   return {
     ...mapSaleRow(row),
     items: (row.sale_items ?? []).map(mapSaleItemRow),
@@ -275,6 +280,7 @@ export async function getAllSales() {
     const { data, error } = await supabase
       .from('sales')
       .select('*, sale_items(*)')
+      .is('deleted_at', null)
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -297,6 +303,7 @@ export async function getSaleById(id: string) {
       .from('sales')
       .select('*, sale_items(*)')
       .eq('id', id)
+      .is('deleted_at', null)
       .single();
 
     if (error) {
@@ -466,6 +473,7 @@ async function getSalesByPaymentAndStatus(paymentMethod: PaymentMethod, status: 
       .select('*, sale_items(*)')
       .eq('payment_method', paymentMethod)
       .eq('status', status)
+      .is('deleted_at', null)
       .order('created_at', { ascending: false });
 
     if (error) {

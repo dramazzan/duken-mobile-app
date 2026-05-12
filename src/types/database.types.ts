@@ -55,6 +55,7 @@ export type Database = {
           comment: string | null;
           seller_id: string;
           seller_name: string;
+          deleted_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -70,6 +71,7 @@ export type Database = {
           comment?: string | null;
           seller_id: string;
           seller_name: string;
+          deleted_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -85,6 +87,7 @@ export type Database = {
           comment?: string | null;
           seller_id?: string;
           seller_name?: string;
+          deleted_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -215,6 +218,36 @@ export type Database = {
         };
         Relationships: [];
       };
+      cash_register_resets: {
+        Row: {
+          id: string;
+          reset_at: string;
+          total_amount: number;
+          cash_amount: number;
+          transfer_amount: number;
+          sales_count: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          reset_at?: string;
+          total_amount?: number;
+          cash_amount?: number;
+          transfer_amount?: number;
+          sales_count?: number;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          reset_at?: string;
+          total_amount?: number;
+          cash_amount?: number;
+          transfer_amount?: number;
+          sales_count?: number;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -302,3 +335,6 @@ export type ExpenseUpdate = Database['public']['Tables']['expenses']['Update'];
 export type SellerRow = Database['public']['Tables']['sellers']['Row'];
 export type SellerInsert = Database['public']['Tables']['sellers']['Insert'];
 export type SellerUpdate = Database['public']['Tables']['sellers']['Update'];
+export type CashRegisterResetRow = Database['public']['Tables']['cash_register_resets']['Row'];
+export type CashRegisterResetInsert = Database['public']['Tables']['cash_register_resets']['Insert'];
+export type CashRegisterResetUpdate = Database['public']['Tables']['cash_register_resets']['Update'];

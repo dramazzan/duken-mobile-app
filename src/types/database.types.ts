@@ -53,6 +53,8 @@ export type Database = {
           customer_name: string | null;
           customer_phone: string | null;
           comment: string | null;
+          seller_id: string;
+          seller_name: string;
           created_at: string;
           updated_at: string;
         };
@@ -66,6 +68,8 @@ export type Database = {
           customer_name?: string | null;
           customer_phone?: string | null;
           comment?: string | null;
+          seller_id: string;
+          seller_name: string;
           created_at?: string;
           updated_at?: string;
         };
@@ -79,10 +83,20 @@ export type Database = {
           customer_name?: string | null;
           customer_phone?: string | null;
           comment?: string | null;
+          seller_id?: string;
+          seller_name?: string;
           created_at?: string;
           updated_at?: string;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: 'sales_seller_id_fkey';
+            columns: ['seller_id'];
+            isOneToOne: false;
+            referencedRelation: 'sellers';
+            referencedColumns: ['id'];
+          },
+        ];
       };
       sale_items: {
         Row: {
@@ -171,6 +185,36 @@ export type Database = {
         };
         Relationships: [];
       };
+      sellers: {
+        Row: {
+          id: string;
+          name: string;
+          phone: string | null;
+          is_active: boolean;
+          is_default: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          phone?: string | null;
+          is_active?: boolean;
+          is_default?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          phone?: string | null;
+          is_active?: boolean;
+          is_default?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -181,6 +225,7 @@ export type Database = {
           customer_name?: string | null;
           customer_phone?: string | null;
           sale_comment?: string | null;
+          seller_id?: string | null;
         };
         Returns: Database['public']['Tables']['sales']['Row'];
       };
@@ -190,8 +235,13 @@ export type Database = {
           customer_phone?: string | null;
           total_amount: number;
           sale_comment?: string | null;
+          seller_id?: string | null;
         };
         Returns: Database['public']['Tables']['sales']['Row'];
+      };
+      get_default_seller_id: {
+        Args: Record<string, never>;
+        Returns: string;
       };
       confirm_sale_payment: {
         Args: {
@@ -225,6 +275,12 @@ export type Database = {
         };
         Returns: Database['public']['Tables']['sales']['Row'];
       };
+      set_default_seller: {
+        Args: {
+          seller_id: string;
+        };
+        Returns: Database['public']['Tables']['sellers']['Row'];
+      };
     };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
@@ -243,3 +299,6 @@ export type SaleItemUpdate = Database['public']['Tables']['sale_items']['Update'
 export type ExpenseRow = Database['public']['Tables']['expenses']['Row'];
 export type ExpenseInsert = Database['public']['Tables']['expenses']['Insert'];
 export type ExpenseUpdate = Database['public']['Tables']['expenses']['Update'];
+export type SellerRow = Database['public']['Tables']['sellers']['Row'];
+export type SellerInsert = Database['public']['Tables']['sellers']['Insert'];
+export type SellerUpdate = Database['public']['Tables']['sellers']['Update'];

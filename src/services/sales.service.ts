@@ -55,7 +55,7 @@ function normalizeSupabaseError(message: string) {
     message.includes('Could not find the function public.create_sale') ||
     message.includes('create_sale') && message.includes('schema cache')
   ) {
-    return 'В Supabase не создана функция create_sale. Выполните SQL migration supabase/migrations/202605110003_create_sales.sql и перезапустите приложение.';
+    return 'В Supabase не создана новая функция create_sale. Выполните SQL migration supabase/migrations/202605110008_create_sellers.sql и перезапустите приложение.';
   }
 
   if (
@@ -80,6 +80,10 @@ function normalizeSupabaseError(message: string) {
 
   if (message.includes('customer name is required')) {
     return 'Укажите имя клиента.';
+  }
+
+  if (message.includes('seller is required') || message.includes('seller not found')) {
+    return 'Выберите продавца.';
   }
 
   if (message.includes('cart_items must be a non-empty array')) {
@@ -132,6 +136,8 @@ export function mapSaleRow(row: SaleRow): Sale {
     customerName: row.customer_name,
     customerPhone: row.customer_phone,
     comment: row.comment,
+    sellerId: row.seller_id,
+    sellerName: row.seller_name,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -191,6 +197,7 @@ function saleMatchesQuery(sale: Sale, query: string) {
     sale.customerName ?? '',
     sale.customerPhone ?? '',
     sale.comment ?? '',
+    sale.sellerName,
     new Date(sale.createdAt).toLocaleString('ru-RU'),
     ...itemTexts,
   ]
@@ -203,7 +210,8 @@ function saleMatchesQuery(sale: Sale, query: string) {
 export async function createSale(
   cartItems: CartLine[],
   paymentMethod: PaymentMethod,
-  customerInfo: CustomerInfo = {}
+  customerInfo: CustomerInfo,
+  sellerId: string
 ) {
   try {
     const payload = cartItems.map((line) => ({
@@ -217,6 +225,7 @@ export async function createSale(
       customer_name: customerInfo.name?.trim() || null,
       customer_phone: customerInfo.phone?.trim() || null,
       sale_comment: customerInfo.comment?.trim() || null,
+      seller_id: sellerId,
     });
 
     if (error) {

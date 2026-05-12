@@ -7,6 +7,7 @@ import {
   ReceiptText,
   ShoppingCart,
   TrendingUp,
+  Users,
   type LucideIcon,
 } from 'lucide-react-native';
 
@@ -46,6 +47,12 @@ const services: Array<{
     title: 'Расходы',
     subtitle: 'Затраты магазина',
     Icon: ReceiptText,
+  },
+  {
+    key: 'sellers',
+    title: 'Продавцы',
+    subtitle: 'Смена и продажи',
+    Icon: Users,
   },
   {
     key: 'cashier',

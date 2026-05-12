@@ -40,6 +40,22 @@ export type CustomerInfo = {
   comment?: string;
 };
 
+export type Seller = {
+  id: string;
+  name: string;
+  phone: string | null;
+  isActive: boolean;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SellerInput = {
+  name: string;
+  phone?: string | null;
+  isActive?: boolean;
+};
+
 export type SaleItem = {
   id: string;
   saleId: string;
@@ -64,6 +80,8 @@ export type Sale = {
   customerName: string | null;
   customerPhone: string | null;
   comment: string | null;
+  sellerId: string;
+  sellerName: string;
   createdAt: string;
   updatedAt: string;
   items?: SaleItem[];
@@ -109,5 +127,6 @@ export type TabKey =
   | 'history'
   | 'debts'
   | 'expenses'
+  | 'sellers'
   | 'statistics'
   | 'services';

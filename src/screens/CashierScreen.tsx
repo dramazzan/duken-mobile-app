@@ -23,6 +23,7 @@ import {
   Search,
   ShoppingCart,
   Trash2,
+  UserRound,
   X,
 } from 'lucide-react-native';
 
@@ -37,7 +38,12 @@ import {
   subscribeToProducts,
 } from '../services/products.service';
 import { createSale, getCustomerSuggestions, PAYMENT_METHOD_LABELS } from '../services/sales.service';
-import type { CartLine, DebtorSummary, PaymentMethod, Product } from '../lib/types';
+import {
+  getAllSellers,
+  getDefaultSeller,
+  subscribeToSellers,
+} from '../services/sellers.service';
+import type { CartLine, DebtorSummary, PaymentMethod, Product, Seller } from '../lib/types';
 
 type CashierScreenProps = {
   cart: CartLine[];
@@ -110,6 +116,9 @@ export function CashierScreen({
   const [customerLoading, setCustomerLoading] = useState(false);
   const [selectedCustomerKey, setSelectedCustomerKey] = useState<string | null>(null);
   const [paymentComment, setPaymentComment] = useState('');
+  const [sellers, setSellers] = useState<Seller[]>([]);
+  const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null);
+  const [sellersLoading, setSellersLoading] = useState(false);
 
   const total = useMemo(
     () => cart.reduce((sum, line) => sum + line.product.price * line.quantity, 0),
@@ -118,6 +127,14 @@ export function CashierScreen({
 
   const requiresCustomerInfo =
     selectedPaymentMethod === 'debt' || selectedPaymentMethod === 'home_payment';
+  const activeSellers = useMemo(
+    () => sellers.filter((seller) => seller.isActive),
+    [sellers]
+  );
+  const selectedSeller = useMemo(
+    () => activeSellers.find((seller) => seller.id === selectedSellerId) ?? null,
+    [activeSellers, selectedSellerId]
+  );
 
   useEffect(() => {
     return subscribeToProducts((payload) => {
@@ -137,6 +154,49 @@ export function CashierScreen({
       );
     });
   }, [setCart]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadSellers = async () => {
+      try {
+        setSellersLoading(true);
+        const rows = await getAllSellers();
+
+        if (mounted) {
+          setSellers(rows);
+          setSelectedSellerId((current) => {
+            if (current && rows.some((seller) => seller.id === current && seller.isActive)) {
+              return current;
+            }
+
+            return getDefaultSeller(rows)?.id ?? null;
+          });
+        }
+      } catch (error) {
+        console.warn('Could not load sellers', error);
+
+        if (mounted) {
+          setSellers([]);
+          setSelectedSellerId(null);
+        }
+      } finally {
+        if (mounted) {
+          setSellersLoading(false);
+        }
+      }
+    };
+
+    loadSellers();
+    const unsubscribe = subscribeToSellers(() => {
+      loadSellers();
+    });
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     const term = manualSearch.trim();
@@ -340,7 +400,20 @@ export function CashierScreen({
       return;
     }
 
+    if (!activeSellers.length) {
+      Alert.alert(
+        'Нет продавца',
+        'Добавьте продавца на странице Сервисы → Продавцы или выполните migration продавцов.'
+      );
+      return;
+    }
+
     resetPaymentForm();
+    setSelectedSellerId((current) =>
+      current && activeSellers.some((seller) => seller.id === current)
+        ? current
+        : getDefaultSeller(activeSellers)?.id ?? activeSellers[0]?.id ?? null
+    );
     setPaymentModalVisible(true);
   };
 
@@ -363,6 +436,11 @@ export function CashierScreen({
       return;
     }
 
+    if (!selectedSellerId) {
+      Alert.alert('Выберите продавца', 'Без продавца продажу сохранить нельзя.');
+      return;
+    }
+
     if (requiresCustomerInfo && !customerName.trim()) {
       Alert.alert('Укажите клиента', 'Для долга и оплаты из дома нужно имя клиента.');
       return;
@@ -379,11 +457,12 @@ export function CashierScreen({
               phone: customerPhone,
               comment: paymentComment,
             }
-          : {}
+          : {},
+        selectedSellerId
       );
       Alert.alert(
         'Продажа сохранена',
-        `${sale.saleNumber}\n${PAYMENT_METHOD_LABELS[sale.paymentMethod]}\nИтого: ${formatMoney(sale.totalAmount)}`
+        `${sale.saleNumber}\n${PAYMENT_METHOD_LABELS[sale.paymentMethod]}\nПродавец: ${sale.sellerName}\nИтого: ${formatMoney(sale.totalAmount)}`
       );
       setCart([]);
       resetPaymentForm();
@@ -581,6 +660,51 @@ export function CashierScreen({
           </View>
 
           <ScrollView contentContainerStyle={styles.paymentContent} keyboardShouldPersistTaps="handled">
+            <View style={styles.sellerPanel}>
+              <View style={styles.sellerPanelHeader}>
+                <View>
+                  <Text style={styles.sellerPanelTitle}>Продавец</Text>
+                  <Text style={styles.sellerPanelSubtitle}>
+                    {selectedSeller ? selectedSeller.name : 'Выберите продавца'}
+                  </Text>
+                </View>
+                {sellersLoading ? (
+                  <ActivityIndicator color={colors.primary} />
+                ) : (
+                  <UserRound color={colors.primary} size={24} />
+                )}
+              </View>
+
+              <View style={styles.sellerOptions}>
+                {activeSellers.map((seller) => {
+                  const active = selectedSellerId === seller.id;
+
+                  return (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: active }}
+                      key={seller.id}
+                      onPress={() => setSelectedSellerId(seller.id)}
+                      style={({ pressed }) => [
+                        styles.sellerOption,
+                        active ? styles.sellerOptionActive : null,
+                        pressed ? styles.paymentOptionPressed : null,
+                      ]}
+                    >
+                      <Text numberOfLines={1} style={[styles.sellerName, active ? styles.sellerNameActive : null]}>
+                        {seller.name}
+                      </Text>
+                      {seller.isDefault ? (
+                        <Text style={[styles.sellerDefault, active ? styles.sellerDefaultActive : null]}>
+                          По умолчанию
+                        </Text>
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
             <View style={styles.paymentOptions}>
               {paymentOptions.map(({ method, description, Icon }) => {
                 const active = selectedPaymentMethod === method;
@@ -699,7 +823,7 @@ export function CashierScreen({
 
           <View style={styles.paymentFooter}>
             <ActionButton
-              disabled={!selectedPaymentMethod || (requiresCustomerInfo && !customerName.trim())}
+              disabled={!selectedPaymentMethod || !selectedSellerId || (requiresCustomerInfo && !customerName.trim())}
               label="Сохранить продажу"
               loading={completing}
               onPress={finishSale}
@@ -1036,6 +1160,68 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 112,
     gap: 16,
+  },
+  sellerPanel: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: '#FFFFFF',
+    padding: 12,
+    gap: 12,
+  },
+  sellerPanelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  sellerPanelTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  sellerPanelSubtitle: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '800',
+    marginTop: 3,
+  },
+  sellerOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  sellerOption: {
+    minHeight: 48,
+    maxWidth: '100%',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  sellerOptionActive: {
+    borderColor: colors.primary,
+    backgroundColor: '#EAF7EF',
+  },
+  sellerName: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  sellerNameActive: {
+    color: colors.primary,
+  },
+  sellerDefault: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  sellerDefaultActive: {
+    color: colors.primary,
   },
   paymentOptions: {
     gap: 10,

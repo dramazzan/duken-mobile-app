@@ -205,6 +205,9 @@ export function SalesHistoryScreen() {
         <View style={styles.methodBadge}>
           <Text style={styles.methodText}>{PAYMENT_METHOD_LABELS[item.paymentMethod]}</Text>
         </View>
+        <View style={styles.sellerBadge}>
+          <Text numberOfLines={1} style={styles.sellerText}>{item.sellerName}</Text>
+        </View>
         <View style={[styles.statusBadge, getStatusStyle(item.status)]}>
           <Text style={styles.statusText}>{SALE_STATUS_LABELS[item.status]}</Text>
         </View>
@@ -229,7 +232,7 @@ export function SalesHistoryScreen() {
         <TextInput
           autoCapitalize="none"
           onChangeText={setSearchTerm}
-          placeholder="Номер, товар, клиент, телефон"
+          placeholder="Номер, товар, клиент, телефон, продавец"
           placeholderTextColor={colors.muted}
           style={styles.searchInput}
           value={searchTerm}
@@ -649,6 +652,20 @@ const styles = StyleSheet.create({
   },
   methodText: {
     color: colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  sellerBadge: {
+    maxWidth: 150,
+    borderRadius: 8,
+    backgroundColor: '#EAF7EF',
+    borderWidth: 1,
+    borderColor: '#C9EAD5',
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  sellerText: {
+    color: colors.primary,
     fontSize: 13,
     fontWeight: '900',
   },

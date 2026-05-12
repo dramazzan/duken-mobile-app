@@ -162,6 +162,7 @@ export function SaleDetailsScreen({
             </View>
 
             <View style={styles.detailsPanel}>
+              <DetailRow label="Продавец" value={sale.sellerName} />
               <DetailRow label="Способ оплаты" value={PAYMENT_METHOD_LABELS[sale.paymentMethod]} />
               <DetailRow label="Статус" value={SALE_STATUS_LABELS[sale.status]} />
               {sale.customerName ? <DetailRow label="Клиент" value={sale.customerName} /> : null}

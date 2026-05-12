@@ -39,6 +39,7 @@ const lowStockLimit = 5;
 const expenseCategories = Object.keys(EXPENSE_CATEGORY_LABELS) as ExpenseCategory[];
 
 type ChartMode = 'days' | 'months' | 'years';
+type ChartMetric = 'count' | 'revenue';
 
 type ProductStat = {
   productId: string;
@@ -59,6 +60,11 @@ const chartModeOptions: Array<{ key: ChartMode; label: string }> = [
   { key: 'days', label: '7 дней' },
   { key: 'months', label: 'Месяцы' },
   { key: 'years', label: 'Годы' },
+];
+
+const chartMetricOptions: Array<{ key: ChartMetric; label: string }> = [
+  { key: 'count', label: 'Чеки' },
+  { key: 'revenue', label: 'Доход' },
 ];
 
 function toDateKey(date: Date) {
@@ -85,6 +91,18 @@ function formatMonthLabel(monthIndex: number) {
   return new Date(2026, monthIndex, 1)
     .toLocaleDateString('ru-RU', { month: 'short' })
     .replace('.', '');
+}
+
+function formatCompactMoney(value: number) {
+  if (value >= 1_000_000) {
+    return `${Math.round(value / 100_000) / 10} млн`;
+  }
+
+  if (value >= 1_000) {
+    return `${Math.round(value / 100) / 10} тыс`;
+  }
+
+  return `${Math.round(value)} ₸`;
 }
 
 function getCalendarDays(monthDate: Date) {
@@ -169,16 +187,18 @@ function getChartTitle(mode: ChartMode) {
   return 'Продажи за 7 дней';
 }
 
-function getChartSubtitle(mode: ChartMode) {
+function getChartSubtitle(mode: ChartMode, metric: ChartMetric) {
+  const metricText = metric === 'count' ? 'количеству чеков' : 'сумме дохода';
+
   if (mode === 'months') {
-    return 'По количеству чеков за выбранный год';
+    return `По ${metricText} за выбранный год`;
   }
 
   if (mode === 'years') {
-    return 'По количеству чеков за последние 7 лет';
+    return `По ${metricText} за последние 7 лет`;
   }
 
-  return 'По количеству чеков';
+  return `По ${metricText}`;
 }
 
 function sumSales(sales: Sale[]) {
@@ -243,6 +263,7 @@ export function StatisticsScreen() {
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedEndDate, setSelectedEndDate] = useState(toDateKey(new Date()));
   const [chartMode, setChartMode] = useState<ChartMode>('days');
+  const [chartMetric, setChartMetric] = useState<ChartMetric>('count');
   const [calendarMonth, setCalendarMonth] = useState(() => new Date());
   const [calendarVisible, setCalendarVisible] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -359,7 +380,10 @@ export function StatisticsScreen() {
     [chartMode, sales, selectedEndDate]
   );
 
-  const maxCount = Math.max(...chartData.map((item) => item.count), 1);
+  const maxChartValue = Math.max(
+    ...chartData.map((item) => (chartMetric === 'count' ? item.count : item.revenue)),
+    1
+  );
   const periodItems = periodSales.flatMap((sale) => sale.items ?? []);
   const popularProducts = collectProductStats(periodItems)
     .sort((left, right) => right.quantity - left.quantity || right.revenue - left.revenue)
@@ -394,6 +418,27 @@ export function StatisticsScreen() {
       };
     }
   );
+  const sellerBreakdown = Array.from(
+    periodSales.reduce((groups, sale) => {
+      const current = groups.get(sale.sellerId);
+
+      if (current) {
+        current.count += 1;
+        current.total += sale.totalAmount;
+      } else {
+        groups.set(sale.sellerId, {
+          id: sale.sellerId,
+          name: sale.sellerName,
+          count: 1,
+          total: sale.totalAmount,
+        });
+      }
+
+      return groups;
+    }, new Map<string, { id: string; name: string; count: number; total: number }>())
+  )
+    .map(([, value]) => value)
+    .sort((left, right) => right.total - left.total || right.count - left.count);
   const expenseBreakdown = expenseCategories
     .map((item) => {
       const rows = periodExpenses.filter((expense) => expense.category === item);
@@ -473,30 +518,61 @@ export function StatisticsScreen() {
             })}
           </View>
 
+          <View style={styles.metricTabs}>
+            {chartMetricOptions.map((item) => {
+              const active = item.key === chartMetric;
+
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  key={item.key}
+                  onPress={() => setChartMetric(item.key)}
+                  style={({ pressed }) => [
+                    styles.metricTab,
+                    active ? styles.metricTabActive : null,
+                    pressed ? styles.pressed : null,
+                  ]}
+                >
+                  <Text style={[styles.metricTabText, active ? styles.metricTabTextActive : null]}>
+                    {item.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
           <View style={styles.sectionHeader}>
             <View>
               <Text style={styles.sectionTitle}>{getChartTitle(chartMode)}</Text>
-              <Text style={styles.sectionSubtitle}>{getChartSubtitle(chartMode)}</Text>
+              <Text style={styles.sectionSubtitle}>{getChartSubtitle(chartMode, chartMetric)}</Text>
             </View>
             {loading ? <ActivityIndicator color={colors.primary} /> : <TrendingUp color={colors.primary} size={24} />}
           </View>
 
           <ScrollView horizontal={chartMode === 'months'} showsHorizontalScrollIndicator={false}>
             <View style={[styles.chart, chartMode === 'months' ? styles.chartWide : null]}>
-              {chartData.map((item) => (
-                <View key={item.key} style={styles.barColumn}>
-                  <Text style={styles.barCount}>{item.count}</Text>
-                  <View style={styles.barTrack}>
-                    <View
-                      style={[
-                        styles.barFill,
-                        { height: `${Math.max(10, (item.count / maxCount) * 100)}%` },
-                      ]}
-                    />
+              {chartData.map((item) => {
+                const value = chartMetric === 'count' ? item.count : item.revenue;
+                const label = chartMetric === 'count' ? String(item.count) : formatCompactMoney(item.revenue);
+
+                return (
+                  <View key={item.key} style={styles.barColumn}>
+                    <Text numberOfLines={1} style={styles.barCount}>
+                      {label}
+                    </Text>
+                    <View style={styles.barTrack}>
+                      <View
+                        style={[
+                          styles.barFill,
+                          { height: `${Math.max(10, (value / maxChartValue) * 100)}%` },
+                        ]}
+                      />
+                    </View>
+                    <Text style={styles.barDate}>{item.label}</Text>
                   </View>
-                  <Text style={styles.barDate}>{item.label}</Text>
-                </View>
-              ))}
+                );
+              })}
             </View>
           </ScrollView>
         </View>
@@ -634,6 +710,24 @@ export function StatisticsScreen() {
               <Text style={styles.paymentLabel}>Ожидает из дома</Text>
               <Text style={styles.paymentValue}>{formatMoney(homePending)}</Text>
             </View>
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Продажи по продавцам</Text>
+          <View style={styles.paymentRows}>
+            {sellerBreakdown.length ? (
+              sellerBreakdown.map((seller) => (
+                <View key={seller.id} style={styles.paymentRow}>
+                  <Text style={styles.paymentLabel}>{seller.name}</Text>
+                  <Text style={styles.paymentValue}>
+                    {seller.count} · {formatMoney(seller.total)}
+                  </Text>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.emptyText}>За выбранный период продаж нет.</Text>
+            )}
           </View>
         </View>
       </ScrollView>
@@ -816,6 +910,33 @@ const styles = StyleSheet.create({
   modeTabTextActive: {
     color: '#FFFFFF',
   },
+  metricTabs: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  metricTab: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  metricTabActive: {
+    backgroundColor: '#EAF7EF',
+    borderColor: colors.primary,
+  },
+  metricTabText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  metricTabTextActive: {
+    color: colors.primary,
+  },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -849,8 +970,9 @@ const styles = StyleSheet.create({
   },
   barCount: {
     color: colors.text,
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '900',
+    maxWidth: '100%',
   },
   barTrack: {
     width: '100%',

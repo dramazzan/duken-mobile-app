@@ -24,6 +24,7 @@ import { ExpensesScreen } from './src/screens/ExpensesScreen';
 import { ProductsScreen } from './src/screens/ProductsScreen';
 import { SalesHistoryScreen } from './src/screens/SalesHistoryScreen';
 import { ServicesScreen } from './src/screens/ServicesScreen';
+import { SellersScreen } from './src/screens/SellersScreen';
 import { StatisticsScreen } from './src/screens/StatisticsScreen';
 import { loadPersistedCart, savePersistedCart } from './src/services/cart-storage.service';
 import { getProductById } from './src/services/products.service';
@@ -158,6 +159,10 @@ function AppContent() {
       return <ExpensesScreen />;
     }
 
+    if (activeTab === 'sellers') {
+      return <SellersScreen />;
+    }
+
     return (
       <CashierScreen
         cart={cart}
@@ -200,7 +205,10 @@ function AppContent() {
         {tabs.map(({ key, label, Icon }) => {
           const active =
             activeTab === key ||
-            ((activeTab === 'history' || activeTab === 'statistics' || activeTab === 'expenses') &&
+            ((activeTab === 'history' ||
+              activeTab === 'statistics' ||
+              activeTab === 'expenses' ||
+              activeTab === 'sellers') &&
               key === 'services');
           return (
             <Pressable

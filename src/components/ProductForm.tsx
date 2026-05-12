@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -17,7 +17,11 @@ import { Barcode, Camera, ImagePlus, Save, X } from 'lucide-react-native';
 import { colors, shadow } from '../lib/theme';
 import { parseInteger, parsePositiveNumber } from '../lib/format';
 import { pickProductPhoto, takeProductPhoto } from '../lib/photoStorage';
-import type { Product, ProductFormValues, ProductInput } from '../lib/types';
+import type { Product, ProductCategory, ProductFormValues, ProductInput } from '../lib/types';
+import {
+  getAllProductCategories,
+  subscribeToProductCategories,
+} from '../services/product-categories.service';
 import { recognizeProductText } from '../services/text-recognition.service';
 import { ActionButton } from './ActionButton';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
@@ -80,6 +84,9 @@ export function ProductForm({
   const [scannerVisible, setScannerVisible] = useState(false);
   const [saving, setSaving] = useState(false);
   const [photoLoading, setPhotoLoading] = useState(false);
+  const [categories, setCategories] = useState<ProductCategory[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
   const [ocrState, setOcrState] = useState<OcrState>(initialOcrState);
 
   const isEditing = Boolean(product);
@@ -94,10 +101,50 @@ export function ProductForm({
     setValues((current) => ({ ...current, barcode: initialBarcode }));
   }, [initialBarcode, product]);
 
+  const loadCategories = useCallback(async () => {
+    try {
+      setCategoriesLoading(true);
+      setCategoryError(null);
+      const rows = await getAllProductCategories();
+      setCategories(rows);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Не удалось загрузить категории.';
+      setCategoryError(message);
+    } finally {
+      setCategoriesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCategories();
+
+    return subscribeToProductCategories(() => {
+      loadCategories();
+    });
+  }, [loadCategories]);
+
   const imageSource = useMemo(
     () => (values.imageUri ? { uri: values.imageUri } : null),
     [values.imageUri]
   );
+
+  const categoryOptions = useMemo(() => {
+    const selectedCategory = values.category.trim();
+
+    if (!selectedCategory || categories.some((category) => category.name === selectedCategory)) {
+      return categories;
+    }
+
+    return [
+      {
+        id: `current-${selectedCategory}`,
+        name: selectedCategory,
+        createdAt: product?.createdAt ?? '',
+        updatedAt: product?.updatedAt ?? '',
+      },
+      ...categories,
+    ];
+  }, [categories, product?.createdAt, product?.updatedAt, values.category]);
 
   const setField = (field: keyof ProductFormValues, value: string | null) => {
     setValues((current) => ({ ...current, [field]: value }));
@@ -115,6 +162,11 @@ export function ProductForm({
       return null;
     }
 
+    if (!category) {
+      Alert.alert('Выберите категорию', 'Категории добавляются в настройках.');
+      return null;
+    }
+
     if (price === null || price <= 0) {
       Alert.alert('Проверьте цену', 'Цена должна быть числом больше нуля.');
       return null;
@@ -128,7 +180,7 @@ export function ProductForm({
     return {
       name,
       barcode: barcode || null,
-      category: category || null,
+      category,
       price,
       quantity,
       imageUri: values.imageUri,
@@ -382,16 +434,41 @@ export function ProductForm({
           </View>
 
           <View style={styles.field}>
-            <Text style={styles.label}>Категория</Text>
-            <TextInput
-              autoCapitalize="sentences"
-              onChangeText={(text) => setField('category', text)}
-              placeholder="Например: Молочные продукты"
-              placeholderTextColor={colors.muted}
-              returnKeyType="next"
-              style={styles.input}
-              value={values.category}
-            />
+            <View style={styles.categoryHeader}>
+              <Text style={styles.label}>Категория</Text>
+              {categoriesLoading ? <ActivityIndicator color={colors.primary} size="small" /> : null}
+            </View>
+            {categoryError ? <Text style={styles.categoryError}>{categoryError}</Text> : null}
+            {categoryOptions.length ? (
+              <View style={styles.categoryGrid}>
+                {categoryOptions.map((category) => {
+                  const active = values.category === category.name;
+
+                  return (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: active }}
+                      key={category.id}
+                      onPress={() => setField('category', category.name)}
+                      style={({ pressed }) => [
+                        styles.categoryOption,
+                        active ? styles.categoryOptionActive : null,
+                        pressed ? styles.categoryOptionPressed : null,
+                      ]}
+                    >
+                      <Text
+                        numberOfLines={1}
+                        style={[styles.categoryOptionText, active ? styles.categoryOptionTextActive : null]}
+                      >
+                        {category.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : (
+              <Text style={styles.categoryHint}>Добавьте категории в настройках, затем выберите одну здесь.</Text>
+            )}
           </View>
 
           <View style={styles.twoColumns}>
@@ -569,6 +646,56 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 17,
     paddingHorizontal: 14,
+  },
+  categoryHeader: {
+    minHeight: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  categoryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  categoryOption: {
+    maxWidth: '100%',
+    minHeight: 42,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  categoryOptionActive: {
+    borderColor: colors.primary,
+    backgroundColor: '#EAF7EF',
+  },
+  categoryOptionPressed: {
+    opacity: 0.72,
+  },
+  categoryOptionText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  categoryOptionTextActive: {
+    color: colors.primary,
+  },
+  categoryHint: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+  categoryError: {
+    color: colors.danger,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
   },
   barcodeRow: {
     flexDirection: 'row',

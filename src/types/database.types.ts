@@ -9,6 +9,27 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      product_categories: {
+        Row: {
+          id: string;
+          name: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       products: {
         Row: {
           id: string;
@@ -108,7 +129,7 @@ export type Database = {
         Row: {
           id: string;
           sale_id: string;
-          product_id: string;
+          product_id: string | null;
           product_name: string;
           product_barcode: string | null;
           product_image_url: string | null;
@@ -120,7 +141,7 @@ export type Database = {
         Insert: {
           id?: string;
           sale_id: string;
-          product_id: string;
+          product_id?: string | null;
           product_name: string;
           product_barcode?: string | null;
           product_image_url?: string | null;
@@ -132,7 +153,7 @@ export type Database = {
         Update: {
           id?: string;
           sale_id?: string;
-          product_id?: string;
+          product_id?: string | null;
           product_name?: string;
           product_barcode?: string | null;
           product_image_url?: string | null;
@@ -265,6 +286,16 @@ export type Database = {
         };
         Returns: Database['public']['Tables']['sales']['Row'];
       };
+      clear_products: {
+        Args: Record<string, never>;
+        Returns: number;
+      };
+      delete_product: {
+        Args: {
+          p_product_id: string;
+        };
+        Returns: number;
+      };
       create_manual_debt: {
         Args: {
           customer_name: string;
@@ -326,6 +357,9 @@ export type Database = {
 export type ProductRow = Database['public']['Tables']['products']['Row'];
 export type ProductInsert = Database['public']['Tables']['products']['Insert'];
 export type ProductUpdate = Database['public']['Tables']['products']['Update'];
+export type ProductCategoryRow = Database['public']['Tables']['product_categories']['Row'];
+export type ProductCategoryInsert = Database['public']['Tables']['product_categories']['Insert'];
+export type ProductCategoryUpdate = Database['public']['Tables']['product_categories']['Update'];
 export type SaleRow = Database['public']['Tables']['sales']['Row'];
 export type SaleInsert = Database['public']['Tables']['sales']['Insert'];
 export type SaleUpdate = Database['public']['Tables']['sales']['Update'];

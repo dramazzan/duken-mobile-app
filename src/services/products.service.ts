@@ -41,6 +41,22 @@ function normalizeSupabaseError(message: string) {
   }
 
   if (
+    message.includes('Could not find the function public.clear_products') ||
+    (message.includes('clear_products') && message.includes('schema cache')) ||
+    message.includes('Could not find the function public.delete_product') ||
+    (message.includes('delete_product') && message.includes('schema cache'))
+  ) {
+    return 'В Supabase не созданы функции безопасного удаления товаров. Выполните SQL migration supabase/migrations/202605110013_safe_product_delete.sql и перезапустите приложение.';
+  }
+
+  if (
+    message.includes('violates foreign key constraint') ||
+    message.includes('sale_items_product_id_fkey')
+  ) {
+    return 'Старые продажи еще жестко связаны с товарами. Выполните SQL migration supabase/migrations/202605110013_safe_product_delete.sql и попробуйте снова.';
+  }
+
+  if (
     message.includes("Could not find the 'category' column") ||
     message.includes('category') && message.includes('schema cache')
   ) {
@@ -193,11 +209,23 @@ export async function updateProduct(id: string, input: ProductInput) {
 }
 
 export async function deleteProduct(id: string) {
-  const { error } = await supabase.from('products').delete().eq('id', id);
+  const { error } = await supabase.rpc('delete_product', {
+    p_product_id: id,
+  });
 
   if (error) {
     throw new Error(`Не удалось удалить товар: ${normalizeSupabaseError(error.message)}`);
   }
+}
+
+export async function clearProducts() {
+  const { data, error } = await supabase.rpc('clear_products');
+
+  if (error) {
+    throw new Error(`Не удалось очистить товары: ${normalizeSupabaseError(error.message)}`);
+  }
+
+  return Number(data ?? 0);
 }
 
 export async function decreaseProductQuantity(productId: string, amount: number) {

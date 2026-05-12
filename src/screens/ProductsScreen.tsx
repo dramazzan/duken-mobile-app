@@ -20,10 +20,13 @@ import { colors, shadow } from '../lib/theme';
 import {
   deleteProduct,
   getAllProducts,
-  getProductCategories,
   subscribeToProducts,
   updateProduct,
 } from '../services/products.service';
+import {
+  getAllProductCategories,
+  subscribeToProductCategories,
+} from '../services/product-categories.service';
 import type { Product, ProductInput } from '../lib/types';
 
 type ProductsScreenProps = {
@@ -46,10 +49,16 @@ export function ProductsScreen({ refreshToken, onInventoryChanged }: ProductsScr
       setErrorText(null);
       const [rows, categoryRows] = await Promise.all([
         getAllProducts(searchTerm, selectedCategory),
-        getProductCategories(),
+        getAllProductCategories(),
       ]);
+      const categoryNames = categoryRows.map((category) => category.name);
+
       setProducts(rows);
-      setCategories(categoryRows);
+      setCategories(categoryNames);
+
+      if (selectedCategory && !categoryNames.includes(selectedCategory)) {
+        setSelectedCategory(null);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось загрузить товары.';
       setErrorText(message);
@@ -63,9 +72,17 @@ export function ProductsScreen({ refreshToken, onInventoryChanged }: ProductsScr
   }, [loadProducts, refreshToken]);
 
   useEffect(() => {
-    return subscribeToProducts(() => {
+    const unsubscribeProducts = subscribeToProducts(() => {
       loadProducts();
     });
+    const unsubscribeCategories = subscribeToProductCategories(() => {
+      loadProducts();
+    });
+
+    return () => {
+      unsubscribeProducts();
+      unsubscribeCategories();
+    };
   }, [loadProducts]);
 
   const handleUpdate = async (input: ProductInput) => {
@@ -304,11 +321,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   categoryFiltersScroll: {
-    maxHeight: 46,
-    marginBottom: 8,
+    maxHeight: 48,
+    marginBottom: 0,
   },
   categoryFilters: {
     paddingHorizontal: 16,
+    paddingBottom: 8,
     gap: 8,
   },
   categoryChip: {
@@ -353,7 +371,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: 16,
-    paddingTop: 6,
+    paddingTop: 4,
     paddingBottom: 120,
     gap: 12,
   },

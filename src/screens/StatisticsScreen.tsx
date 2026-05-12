@@ -218,7 +218,8 @@ function collectProductStats(items: SaleItem[]) {
   const stats = new Map<string, ProductStat>();
 
   items.forEach((item) => {
-    const current = stats.get(item.productId);
+    const productKey = item.productId ?? `deleted-${item.productName}-${item.productBarcode ?? ''}`;
+    const current = stats.get(productKey);
 
     if (current) {
       current.quantity += item.quantity;
@@ -226,8 +227,8 @@ function collectProductStats(items: SaleItem[]) {
       return;
     }
 
-    stats.set(item.productId, {
-      productId: item.productId,
+    stats.set(productKey, {
+      productId: productKey,
       name: item.productName,
       barcode: item.productBarcode,
       quantity: item.quantity,

@@ -28,6 +28,13 @@ export type ProductInput = {
   imageUri: string | null;
 };
 
+export type ProductCategory = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type CartLine = {
   product: Product;
   quantity: number;
@@ -62,7 +69,7 @@ export type SellerInput = {
 export type SaleItem = {
   id: string;
   saleId: string;
-  productId: string;
+  productId: string | null;
   productName: string;
   productBarcode: string | null;
   productImageUrl: string | null;

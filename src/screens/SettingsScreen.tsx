@@ -6,14 +6,17 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import {
   History,
   Moon,
+  Plus,
   RotateCcw,
   Settings,
   Sun,
+  Tags,
   Trash2,
   Users,
   WalletCards,
@@ -22,7 +25,14 @@ import {
 import { ActionButton } from '../components/ActionButton';
 import { formatDateTime, formatMoney } from '../lib/format';
 import { getThemeColors, type ThemeMode } from '../lib/theme';
-import type { Sale, TabKey } from '../lib/types';
+import type { ProductCategory, Sale, TabKey } from '../lib/types';
+import {
+  createProductCategory,
+  deleteProductCategory,
+  getAllProductCategories,
+  subscribeToProductCategories,
+} from '../services/product-categories.service';
+import { clearProducts } from '../services/products.service';
 import {
   clearSalesHistory,
   getCashRegisterSummary,
@@ -60,6 +70,8 @@ export function SettingsScreen({
   const styles = useMemo(() => createStyles(palette), [palette]);
   const [summary, setSummary] = useState<CashRegisterSummary>(emptySummary);
   const [deletedSales, setDeletedSales] = useState<Sale[]>([]);
+  const [categories, setCategories] = useState<ProductCategory[]>([]);
+  const [categoryName, setCategoryName] = useState('');
   const [loading, setLoading] = useState(false);
   const [working, setWorking] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -68,12 +80,14 @@ export function SettingsScreen({
     try {
       setLoading(true);
       setErrorText(null);
-      const [cashSummary, deletedRows] = await Promise.all([
+      const [cashSummary, deletedRows, categoryRows] = await Promise.all([
         getCashRegisterSummary(),
         getDeletedSales(),
+        getAllProductCategories(),
       ]);
       setSummary(cashSummary);
       setDeletedSales(deletedRows);
+      setCategories(categoryRows);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось загрузить настройки.';
       setErrorText(message);
@@ -86,8 +100,63 @@ export function SettingsScreen({
     loadSettingsData();
   }, [loadSettingsData]);
 
+  useEffect(() => {
+    return subscribeToProductCategories(() => {
+      loadSettingsData();
+    });
+  }, [loadSettingsData]);
+
   const toggleTheme = () => {
     onThemeChange(themeMode === 'dark' ? 'light' : 'dark');
+  };
+
+  const handleAddCategory = async () => {
+    const name = categoryName.trim();
+
+    if (!name) {
+      Alert.alert('Введите категорию', 'Название категории обязательно.');
+      return;
+    }
+
+    try {
+      setWorking(true);
+      setErrorText(null);
+      await createProductCategory(name);
+      setCategoryName('');
+      await loadSettingsData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Не удалось добавить категорию.';
+      Alert.alert('Ошибка', message);
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const handleDeleteCategory = (category: ProductCategory) => {
+    Alert.alert(
+      'Удалить категорию?',
+      `Категория "${category.name}" исчезнет из списка выбора. У товаров с этой категорией поле категории очистится.`,
+      [
+        { text: 'Отмена', style: 'cancel' },
+        {
+          text: 'Удалить',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setWorking(true);
+              setErrorText(null);
+              await deleteProductCategory(category);
+              await loadSettingsData();
+            } catch (error) {
+              const message = error instanceof Error ? error.message : 'Не удалось удалить категорию.';
+              Alert.alert('Ошибка', message);
+            } finally {
+              setWorking(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleResetCash = () => {
@@ -135,6 +204,35 @@ export function SettingsScreen({
               await loadSettingsData();
             } catch (error) {
               const message = error instanceof Error ? error.message : 'Не удалось очистить историю.';
+              Alert.alert('Ошибка', message);
+            } finally {
+              setWorking(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleClearProducts = () => {
+    Alert.alert(
+      'Очистить все товары?',
+      'Все товары будут удалены из списка и кассы. История продаж останется, но старые позиции больше не будут связаны с карточками товаров.',
+      [
+        { text: 'Отмена', style: 'cancel' },
+        {
+          text: 'Очистить товары',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setWorking(true);
+              setErrorText(null);
+              const count = await clearProducts();
+              onClearCart();
+              await loadSettingsData();
+              Alert.alert('Товары очищены', `Удалено товаров: ${count}.`);
+            } catch (error) {
+              const message = error instanceof Error ? error.message : 'Не удалось очистить товары.';
               Alert.alert('Ошибка', message);
             } finally {
               setWorking(false);
@@ -221,6 +319,68 @@ export function SettingsScreen({
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
+            <View style={styles.sectionTitleWrap}>
+              <Text style={styles.sectionTitle}>Категории товаров</Text>
+              <Text style={styles.sectionSubtitle}>Добавляйте категории здесь, затем выбирайте их в товаре</Text>
+            </View>
+            <Tags color={palette.primary} size={24} />
+          </View>
+
+          <View style={styles.categoryForm}>
+            <TextInput
+              autoCapitalize="sentences"
+              editable={!working}
+              onChangeText={setCategoryName}
+              onSubmitEditing={handleAddCategory}
+              placeholder="Название категории"
+              placeholderTextColor={palette.muted}
+              returnKeyType="done"
+              style={styles.categoryInput}
+              value={categoryName}
+            />
+            <Pressable
+              accessibilityRole="button"
+              disabled={working}
+              onPress={handleAddCategory}
+              style={({ pressed }) => [
+                styles.addCategoryButton,
+                working ? styles.disabledButton : null,
+                pressed ? styles.pressed : null,
+              ]}
+            >
+              <Plus color="#FFFFFF" size={22} />
+            </Pressable>
+          </View>
+
+          {categories.length ? (
+            <View style={styles.categoryList}>
+              {categories.map((category) => (
+                <View key={category.id} style={styles.categoryRow}>
+                  <Text numberOfLines={1} style={styles.categoryName}>
+                    {category.name}
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={working}
+                    onPress={() => handleDeleteCategory(category)}
+                    style={({ pressed }) => [
+                      styles.deleteCategoryButton,
+                      working ? styles.disabledButton : null,
+                      pressed ? styles.pressed : null,
+                    ]}
+                  >
+                    <Trash2 color={palette.danger} size={18} />
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.emptyText}>Категорий пока нет.</Text>
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
             <View>
               <Text style={styles.sectionTitle}>Касса</Text>
               <Text style={styles.sectionSubtitle}>
@@ -269,6 +429,23 @@ export function SettingsScreen({
             label="Очистить историю"
             loading={working}
             onPress={handleClearHistory}
+            variant="danger"
+          />
+        </View>
+
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionTitle}>Товары</Text>
+              <Text style={styles.sectionSubtitle}>Полная очистка списка товаров и кассы</Text>
+            </View>
+            <Trash2 color={palette.danger} size={24} />
+          </View>
+          <ActionButton
+            icon={<Trash2 color={palette.text} size={20} />}
+            label="Очистить товары"
+            loading={working}
+            onPress={handleClearProducts}
             variant="danger"
           />
         </View>
@@ -392,6 +569,10 @@ function createStyles(palette: ReturnType<typeof getThemeColors>) {
       justifyContent: 'space-between',
       gap: 12,
     },
+    sectionTitleWrap: {
+      flex: 1,
+      minWidth: 0,
+    },
     sectionTitle: {
       color: palette.text,
       fontSize: 18,
@@ -403,6 +584,65 @@ function createStyles(palette: ReturnType<typeof getThemeColors>) {
       fontWeight: '700',
       marginTop: 3,
       lineHeight: 18,
+    },
+    categoryForm: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    categoryInput: {
+      flex: 1,
+      minHeight: 48,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: palette.border,
+      backgroundColor: palette.surface,
+      color: palette.text,
+      fontSize: 16,
+      fontWeight: '700',
+      paddingHorizontal: 12,
+    },
+    addCategoryButton: {
+      width: 48,
+      height: 48,
+      borderRadius: 8,
+      backgroundColor: palette.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    categoryList: {
+      gap: 8,
+    },
+    categoryRow: {
+      minHeight: 48,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: palette.border,
+      backgroundColor: palette.surface,
+      paddingLeft: 12,
+      paddingRight: 6,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    categoryName: {
+      flex: 1,
+      color: palette.text,
+      fontSize: 15,
+      fontWeight: '900',
+    },
+    deleteCategoryButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#FFF1F0',
+      borderColor: '#F4B5B0',
+      borderWidth: 1,
+    },
+    disabledButton: {
+      opacity: 0.5,
     },
     cashGrid: {
       flexDirection: 'row',

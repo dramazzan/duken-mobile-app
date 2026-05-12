@@ -37,7 +37,8 @@ begin
   set product_id = null
   where product_id is not null;
 
-  delete from public.products;
+  delete from public.products
+  where id is not null;
   get diagnostics deleted_count = row_count;
 
   return deleted_count;

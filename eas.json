@@ -3,12 +3,21 @@
     "version": ">= 10.0.0"
   },
   "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "simulator": false
+      }
+    },
+
     "preview": {
       "distribution": "internal",
       "android": {
         "buildType": "apk"
       }
     },
+
     "preview-small": {
       "distribution": "internal",
       "env": {
@@ -18,6 +27,7 @@
         "buildType": "apk"
       }
     },
+
     "production": {
       "android": {
         "buildType": "app-bundle"

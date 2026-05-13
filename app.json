@@ -14,8 +14,10 @@
     },
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.ramazan.duken",
       "infoPlist": {
-        "NSCameraUsageDescription": "Камера нужна для сканирования штрих-кодов и фото товаров."
+        "NSCameraUsageDescription": "Камера нужна для сканирования штрих-кодов и фото товаров.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
